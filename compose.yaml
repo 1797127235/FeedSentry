@@ -16,4 +16,4 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${FEEDSENTRY_PORT:-8000}:8000"
