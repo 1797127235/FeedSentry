@@ -87,9 +87,42 @@ class EventBundle:
     scrape: ScrapeRecord | None
 
 
+@dataclass(frozen=True)
+class StatusCounts:
+    pending: int
+    failed: int
+
+
 class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    async def ping(self) -> bool:
+        async with self._session_factory() as session:
+            await session.scalar(select(1))
+        return True
+
+    async def status_counts(self) -> StatusCounts:
+        async with self._session_factory() as session:
+            pending = await session.scalar(
+                select(func.count())
+                .select_from(MonitorEventRow)
+                .where(
+                    MonitorEventRow.status.not_in(
+                        (
+                            EventStatus.FILTERED.value,
+                            EventStatus.DELIVERED.value,
+                            EventStatus.FAILED.value,
+                        )
+                    )
+                )
+            )
+            failed = await session.scalar(
+                select(func.count())
+                .select_from(MonitorEventRow)
+                .where(MonitorEventRow.status == EventStatus.FAILED.value)
+            )
+        return StatusCounts(pending=int(pending or 0), failed=int(failed or 0))
 
     async def feed_is_initialized(self, monitor_id: str, source_url: str) -> bool:
         async with self._session_factory() as session:

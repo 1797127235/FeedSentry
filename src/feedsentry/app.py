@@ -11,12 +11,14 @@ import uvicorn
 from fastapi import FastAPI
 
 from feedsentry.ai import AIClient
+from feedsentry.api import router
 from feedsentry.apprise import AppriseClient
 from feedsentry.config import ConfigManager
 from feedsentry.database import Database, create_database
 from feedsentry.feeds import FeedClient
 from feedsentry.firecrawl import FirecrawlClient
 from feedsentry.ingestion import IngestionService
+from feedsentry.logging import configure_logging
 from feedsentry.processor import EventProcessor
 from feedsentry.repository import Repository
 from feedsentry.scheduler import Scheduler
@@ -34,6 +36,8 @@ class AppServices:
 
 
 def create_app(config_path: Path) -> FastAPI:
+    configure_logging()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         config_manager = ConfigManager(config_path)
@@ -80,7 +84,9 @@ def create_app(config_path: Path) -> FastAPI:
             await http.aclose()
             await database.dispose()
 
-    return FastAPI(lifespan=lifespan)
+    app = FastAPI(lifespan=lifespan)
+    app.include_router(router)
+    return app
 
 
 def run() -> None:
