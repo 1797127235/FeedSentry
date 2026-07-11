@@ -24,6 +24,19 @@ class NormalizedEntry:
     content_hash: str
     raw_json: str
 
+    def as_repository_kwargs(self) -> dict[str, object]:
+        return {
+            "source_url": self.source_url,
+            "external_id": self.external_id,
+            "title": self.title,
+            "summary": self.summary,
+            "link": self.link,
+            "author": self.author,
+            "published_at": self.published_at,
+            "content_hash": self.content_hash,
+            "raw_json": self.raw_json,
+        }
+
 
 @dataclass(frozen=True)
 class FeedFetchResult:
