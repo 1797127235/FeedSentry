@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from feedsentry.config import ConfigManager, load_config, redact_mapping
 
-VALID_CONFIG = '''
+VALID_CONFIG = """
 integrations:
   firecrawl:
     base_url: ${FIRECRAWL_URL}
@@ -25,7 +25,7 @@ monitors:
     interval: 10m
     sources: [https://example.com/feed.xml]
     destination: {apprise_key: telegram}
-'''
+"""
 
 
 def write_config(path, content: str = VALID_CONFIG) -> None:
@@ -50,14 +50,14 @@ def test_load_config_rejects_duplicate_monitor_ids(tmp_path, monkeypatch) -> Non
     write_config(
         config_path,
         VALID_CONFIG
-        + '''
+        + """
   - id: releases
     name: Duplicate
     goal: Duplicate monitor
     interval: 10m
     sources: [https://example.com/duplicate.xml]
     destination: {apprise_key: telegram}
-''',
+""",
     )
 
     with pytest.raises((ValidationError, ValueError)):
@@ -93,3 +93,41 @@ def test_config_manager_keeps_last_known_good_config_on_invalid_reload(
     assert manager.reload_if_changed() is False
     assert manager.current is original
     assert manager.last_error is not None
+
+
+def test_config_manager_keeps_current_when_config_file_is_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path)
+    manager = ConfigManager(config_path)
+    original = manager.load_initial()
+    original_mtime = manager.mtime
+    config_path.unlink()
+
+    assert manager.reload_if_changed() is False
+    assert manager.current is original
+    assert manager.mtime == original_mtime
+    assert manager.last_error is not None
+
+    write_config(config_path)
+
+    assert manager.reload_if_changed() is True
+    assert manager.current is not original
+    assert manager.last_error is None
+
+
+def test_config_manager_does_not_expose_secrets_in_reload_errors(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path)
+    manager = ConfigManager(config_path)
+    original = manager.load_initial()
+    write_config(
+        config_path,
+        VALID_CONFIG.replace("api_key: ${FIRECRAWL_KEY:-}", "api_key: [real-api-secret]"),
+    )
+
+    assert manager.reload_if_changed() is False
+    assert manager.current is original
+    assert manager.last_error is not None
+    assert "real-api-secret" not in manager.last_error

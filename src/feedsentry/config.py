@@ -136,14 +136,19 @@ class ConfigManager:
         return config
 
     def reload_if_changed(self) -> bool:
-        mtime = self.path.stat().st_mtime_ns
+        try:
+            mtime = self.path.stat().st_mtime_ns
+        except OSError:
+            self.last_error = "configuration reload failed"
+            return False
+
         if mtime == self.mtime:
             return False
 
         try:
             config = load_config(self.path)
-        except Exception as exc:
-            self.last_error = str(exc)
+        except Exception:
+            self.last_error = "configuration reload failed"
             self.mtime = mtime
             return False
 
