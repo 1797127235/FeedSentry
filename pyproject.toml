@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "feedsentry"
+version = "0.1.0"
+description = "AI-assisted RSS monitoring and notification service"
+requires-python = ">=3.12"
+dependencies = [
+  "aiosqlite>=0.21,<1",
+  "fastapi>=0.116,<1",
+  "feedparser>=6.0.11,<7",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "PyYAML>=6.0.2,<7",
+  "sqlalchemy>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.0,<2",
+  "respx>=0.22,<1",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+feedsentry = "feedsentry.app:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/feedsentry"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
