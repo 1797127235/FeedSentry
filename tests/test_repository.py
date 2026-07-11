@@ -2,18 +2,56 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import insert
+from sqlalchemy.exc import IntegrityError
 
-from feedsentry.database import create_database
+from feedsentry.database import DeliveryRow, MonitorEventRow, create_database
 from feedsentry.domain import EventStatus
 from feedsentry.repository import Repository
 
 
 @pytest.fixture
-async def repository(tmp_path):
+async def database(tmp_path):
     database = create_database(tmp_path / "feedsentry.db")
     await database.initialize()
-    yield Repository(database.session_factory)
+    yield database
     await database.dispose()
+
+
+@pytest.fixture
+async def repository(database):
+    return Repository(database.session_factory)
+
+
+async def test_database_enforces_foreign_keys_on_every_connection(database) -> None:
+    await database.engine.dispose()
+    now = datetime.now(UTC)
+    invalid_event = insert(MonitorEventRow).values(
+        monitor_id="monitor-a",
+        entry_id=999,
+        status=EventStatus.DISCOVERED.value,
+        goal_snapshot="goal",
+        goal_hash="goal-hash",
+        failure_count=0,
+        created_at=now,
+        updated_at=now,
+    )
+    invalid_delivery = insert(DeliveryRow).values(
+        event_id=999,
+        apprise_key="telegram",
+        idempotency_key="idempotency-key",
+        status="pending",
+        attempts=0,
+        created_at=now,
+        updated_at=now,
+    )
+
+    for statement in (invalid_event, invalid_delivery):
+        async with database.session_factory() as session:
+            with pytest.raises(IntegrityError):
+                await session.execute(statement)
+                await session.commit()
+            await session.rollback()
 
 
 async def test_feed_baseline_is_scoped_to_monitor(repository: Repository) -> None:
@@ -83,6 +121,9 @@ async def test_recovery_returns_in_progress_events_to_retry(repository: Reposito
 
     assert event.status is EventStatus.RETRY_WAIT
     assert event.resume_stage is EventStatus.FETCHING
+    assert event.next_attempt_at is not None
+    assert event.next_attempt_at.tzinfo is UTC
+    assert event.next_attempt_at <= datetime.now(UTC)
 
 
 async def test_transition_does_not_overwrite_an_event_advanced_by_another_worker(
