@@ -23,6 +23,10 @@ class Apprise(Protocol):
     async def notify(self, key: str, title: str, body: str) -> str: ...
 
 
+class DestinationResolver(Protocol):
+    def __call__(self, monitor_id: str) -> str: ...
+
+
 class EventProcessor:
     def __init__(
         self,
@@ -30,7 +34,7 @@ class EventProcessor:
         ai: AI,
         firecrawl: Firecrawl,
         apprise: Apprise,
-        apprise_key: str,
+        apprise_key: str | DestinationResolver,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.repository = repository
@@ -143,12 +147,17 @@ class EventProcessor:
         )
 
     async def _deliver(self, bundle: EventBundle) -> None:
-        delivery = await self.repository.create_delivery(bundle.event.id, self.apprise_key)
+        apprise_key = (
+            self.apprise_key(bundle.event.monitor_id)
+            if callable(self.apprise_key)
+            else self.apprise_key
+        )
+        delivery = await self.repository.create_delivery(bundle.event.id, apprise_key)
         title = bundle.event.output_title or bundle.entry.title
         summary = bundle.event.output_summary or bundle.entry.summary
         reason = bundle.event.decision_reason or "Relevant to the monitoring goal"
         body = f"{summary}\n\nReason: {reason}\n\n{bundle.entry.link}"
-        response = await self.apprise.notify(self.apprise_key, title, body)
+        response = await self.apprise.notify(apprise_key, title, body)
         await self.repository.mark_delivery_success(delivery.id, response)
         await self.repository.transition_event(
             bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED

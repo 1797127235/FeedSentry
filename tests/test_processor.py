@@ -102,3 +102,26 @@ async def test_apprise_failure_retries_delivery_without_repeating_ai(
     assert delivered.status is EventStatus.DELIVERED
     assert fixture.ai.screen_calls == 1
     assert fixture.apprise.calls == 2
+
+
+async def test_delivery_resolves_destination_from_monitor(
+    processor_fixture: ProcessorFixture,
+) -> None:
+    fixture = processor_fixture
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        lambda monitor_id: f"destination-{monitor_id}",
+    )
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    assert fixture.apprise.notifications[0][0] == "destination-monitor-a"
