@@ -1,0 +1,17 @@
+services:
+  feedsentry:
+    build: .
+    restart: unless-stopped
+    environment:
+      FEEDSENTRY_CONFIG: /config/config.yaml
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_MODEL: ${AI_MODEL}
+      FIRECRAWL_BASE_URL: ${FIRECRAWL_BASE_URL}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      APPRISE_BASE_URL: ${APPRISE_BASE_URL}
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/app/data
+    ports:
+      - "8000:8000"

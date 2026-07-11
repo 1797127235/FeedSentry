@@ -1,5 +1,6 @@
 .superpowers/
 .worktrees/
+config.yaml
 data/
 .env
 __pycache__/

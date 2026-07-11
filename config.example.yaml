@@ -1,0 +1,22 @@
+integrations:
+  firecrawl:
+    base_url: ${FIRECRAWL_BASE_URL}
+    api_key: ${FIRECRAWL_API_KEY:-}
+  apprise:
+    base_url: ${APPRISE_BASE_URL}
+ai:
+  base_url: ${AI_BASE_URL}
+  api_key: ${AI_API_KEY}
+  model: ${AI_MODEL}
+storage:
+  path: ./data/feedsentry.db
+monitors:
+  - id: example-releases
+    name: Example releases
+    goal: Important product releases
+    interval: 10m # Use a positive number plus s, m, h, or d.
+    sources:
+      - https://example.com/feed.xml
+    destination:
+      apprise_key: telegram
+    enabled: false
