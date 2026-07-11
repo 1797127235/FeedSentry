@@ -10,6 +10,58 @@ from feedsentry.feeds import FeedFetchResult
 from feedsentry.repository import Repository
 
 
+class FakeAIClient:
+    def __init__(self) -> None:
+        self.screen_result = None
+        self.summary_result = None
+        self.screen_calls = 0
+        self.summary_calls = 0
+
+    async def screen(self, goal: str, title: str, feed_summary: str):
+        del goal, title, feed_summary
+        self.screen_calls += 1
+        if self.screen_result is None:
+            raise RuntimeError("fake screen result was not configured")
+        return self.screen_result
+
+    async def summarize(self, goal: str, title: str, markdown: str):
+        del goal, title, markdown
+        self.summary_calls += 1
+        if self.summary_result is None:
+            raise RuntimeError("fake summary result was not configured")
+        return self.summary_result
+
+
+class FakeFirecrawlClient:
+    def __init__(self) -> None:
+        self.markdown: str | None = None
+        self.error: Exception | None = None
+        self.calls = 0
+
+    async def scrape(self, url: str) -> str:
+        del url
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        if self.markdown is None:
+            raise RuntimeError("fake markdown was not configured")
+        return self.markdown
+
+
+class FakeAppriseClient:
+    def __init__(self) -> None:
+        self.error: Exception | None = None
+        self.calls = 0
+        self.notifications: list[tuple[str, str, str]] = []
+
+    async def notify(self, key: str, title: str, body: str) -> str:
+        self.calls += 1
+        self.notifications.append((key, title, body))
+        if self.error is not None:
+            raise self.error
+        return "sent"
+
+
 class FakeFeedClient:
     def __init__(self) -> None:
         self.result: FeedFetchResult | None = None
