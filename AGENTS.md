@@ -1,17 +1,17 @@
-# FeedSentry Agent Guide
+# FeedSentry 项目指南
 
-## Project Purpose
+## 项目目标
 
-FeedSentry is a self-hosted Python service that polls RSS/RSSHub feeds, filters
-new entries through an OpenAI-compatible model, optionally enriches content with
-Firecrawl, and sends accepted summaries through Apprise.
+FeedSentry 是一个自托管 Python 服务：轮询 RSS/RSSHub 源，通过
+OpenAI 兼容模型筛选新条目，按需用 Firecrawl 补充正文，并通过 Apprise
+发送已接受条目的摘要。
 
-The service is designed around a durable SQLite event state machine. Do not
-replace persisted state with in-memory queues or bypass idempotency checks.
+服务以可持久化的 SQLite 事件状态机为核心。不要将持久化状态替换为内存
+队列，也不要绕过幂等性检查。
 
-## Local Development
+## 本地开发
 
-Use `uv` from the repository root:
+在仓库根目录使用 `uv`：
 
 ```bash
 uv sync --extra dev
@@ -20,49 +20,47 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-New behavior requires tests. Run the focused test first, then the complete
-suite before committing. Keep `src/feedsentry/` and `tests/` aligned by module.
+新增行为必须有测试。先运行聚焦测试，再在提交前运行完整测试集。保持
+`src/feedsentry/` 与 `tests/` 的模块结构对应。
 
-## Important Architecture Rules
+## 重要架构约束
 
-- `config.yaml` is the source of truth for monitor definitions; SQLite stores
-  baselines, entries, event state, scrape cache, and delivery attempts.
-- The first successful poll for each `monitor_id` plus source URL creates a
-  baseline only. It must not notify for historical entries.
-- Preserve the event state machine and guarded repository transitions. A retry
-  must resume its failed stage without repeating completed AI, Firecrawl, or
-  Apprise work.
-- Delivery rows are idempotent per event and Apprise destination.
-- Keep all external clients async and injectable for deterministic tests.
-- Treat RSS text, scraped content, and model output as untrusted input. Do not
-  remove the AI prompt-injection safeguards.
-- SQLite timestamps must remain UTC-aware when read from the repository.
+- `config.yaml` 是监控器定义的唯一来源；SQLite 保存基线、条目、事件状态、
+  抓取缓存和投递记录。
+- 每一个 `monitor_id` 与源 URL 的第一次成功轮询只建立基线，不能为历史条目
+  发送通知。
+- 保留事件状态机和仓储层的受保护状态转换。重试必须从失败阶段恢复，不能
+  重复已经完成的 AI、Firecrawl 或 Apprise 调用。
+- 投递记录必须按事件和 Apprise 目的地保持幂等。
+- 所有外部客户端保持异步且可注入，便于确定性测试。
+- RSS 文本、抓取正文和模型输出都属于不可信输入。不得移除 AI 提示注入防护。
+- SQLite 中读取出的时间戳必须保持 UTC-aware。
 
-## Configuration And Secrets
+## 配置与密钥
 
-- Never commit `config.yaml`, `.env`, API keys, bot tokens, notification URLs,
-  database files, or runtime logs.
-- `config.example.yaml` documents the required environment variables.
-- `AI_BASE_URL` is a base URL ending in `/v1`; the application appends
-  `/chat/completions`.
-- Firecrawl and Apprise run on the deployment host. Containers access them via
-  `host.docker.internal`; Compose provides that host gateway mapping.
-- Apprise destinations are configured in Apprise itself. FeedSentry references
-  a destination through `destination.apprise_key` only.
+- 不要提交 `config.yaml`、`.env`、API key、Bot token、通知 URL、数据库文件
+  或运行日志。
+- `config.example.yaml` 说明了必需的环境变量。
+- `AI_BASE_URL` 是以 `/v1` 结尾的基址；应用会自动追加
+  `/chat/completions`。
+- Firecrawl 与 Apprise 部署在宿主机上；容器通过
+  `host.docker.internal` 访问，Compose 已配置 host gateway 映射。
+- Apprise 目的地配置在 Apprise 本身中；FeedSentry 仅通过
+  `destination.apprise_key` 引用目的地。
 
-## Production Deployment
+## 正式部署
 
-The active server deployment is intentionally local-only:
+当前正式服务仅绑定在服务器本机：
 
 ```text
-Host: 38.246.112.19
-Directory: /home/anya/feedsentry
-Compose service: feedsentry
-Host port: 127.0.0.1:18003 -> container port 8000
-Data: /home/anya/feedsentry/data/feedsentry.db
+服务器：38.246.112.19
+目录：/home/anya/feedsentry
+Compose 服务：feedsentry
+主机端口：127.0.0.1:18003 -> 容器端口 8000
+数据文件：/home/anya/feedsentry/data/feedsentry.db
 ```
 
-Manage it over SSH:
+通过 SSH 管理：
 
 ```bash
 ssh 38.246.112.19
@@ -74,28 +72,24 @@ curl http://127.0.0.1:18003/health/ready
 curl http://127.0.0.1:18003/status
 ```
 
-The container runs as UID 10001. The host `data/` directory must grant that UID
-write access; do not solve permission failures by running the service as root.
+容器以 UID `10001` 的非 root 用户运行。宿主机 `data/` 目录必须允许该 UID
+写入；不要为了规避权限错误而将服务改为 root 运行。
 
-Before changing production configuration, validate Compose without printing
-secrets:
+修改正式配置前，使用以下命令验证 Compose，且不要输出密钥：
 
 ```bash
 docker compose config -q
 ```
 
-## Verification Expectations
+## 验证要求
 
-- Local: full pytest suite, Ruff lint, and Ruff format check.
-- Container: `docker build -t feedsentry:test .` and `docker compose config -q`.
-- Runtime: check `/health/live`, `/health/ready`, and `/status`.
-- A new source starts with a silent baseline. Use a disposable feed or a known
-  new entry for delivery tests.
-- Before a real notification test, confirm the intended Apprise configuration
-  key and label the message as a test.
+- 本地：完整 pytest、Ruff lint、Ruff format 检查。
+- 容器：`docker build -t feedsentry:test .` 与 `docker compose config -q`。
+- 运行时：检查 `/health/live`、`/health/ready` 和 `/status`。
+- 新源第一次轮询必须静默建立基线。投递测试使用可控的新条目或一次性源。
+- 真实通知测试前，确认目标 Apprise 配置 key，并在消息中标记为测试。
 
-## Change Scope
+## 改动范围
 
-Keep changes narrow. Avoid unrelated dependency upgrades, schema rewrites, and
-formatting churn. If a schema migration is needed, provide an explicit upgrade
-path that preserves existing SQLite data.
+保持改动聚焦。避免无关依赖升级、数据库模式重写和大范围格式化。若确实需要
+迁移模式，必须提供明确的升级路径，且不能丢失已有 SQLite 数据。
