@@ -13,5 +13,7 @@ services:
     volumes:
       - ./config.yaml:/config/config.yaml:ro
       - ./data:/app/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
     ports:
       - "8000:8000"
