@@ -4,23 +4,13 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 ENV_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 SECRET_KEYS = {"api_key", "password", "token", "secret"}
-
-
-def parse_duration(value: str) -> int:
-    match = re.fullmatch(r"([1-9][0-9]*)([smhd])", value.strip())
-    if not match:
-        raise ValueError("interval must use s,m,h,d (example 10m)")
-
-    amount = int(match.group(1))
-    unit = match.group(2)
-    return amount * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
 
 
 class FirecrawlConfig(BaseModel):
@@ -32,9 +22,17 @@ class AppriseConfig(BaseModel):
     base_url: HttpUrl
 
 
+class TelegramConfig(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    bot_token: str
+    chat_id: str
+
+
 class IntegrationsConfig(BaseModel):
     firecrawl: FirecrawlConfig
     apprise: AppriseConfig
+    telegram: TelegramConfig | None = None
 
 
 class AIConfig(BaseModel):
@@ -48,42 +46,44 @@ class StorageConfig(BaseModel):
 
 
 class DestinationConfig(BaseModel):
-    apprise_key: str = Field(pattern=r"^[A-Za-z0-9._-]+$")
+    kind: Literal["apprise", "telegram"] = "apprise"
+    apprise_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]+$")
+
+    @model_validator(mode="after")
+    def validate_kind_fields(self) -> DestinationConfig:
+        if self.kind == "apprise" and self.apprise_key is None:
+            raise ValueError("apprise destinations require apprise_key")
+        if self.kind == "telegram" and "apprise_key" in self.model_fields_set:
+            raise ValueError("telegram destinations must not include apprise_key")
+        return self
 
 
-class MonitorConfig(BaseModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
-    name: str = Field(min_length=1)
+class FilterConfig(BaseModel):
     goal: str = Field(min_length=1)
-    interval: str
-    sources: list[HttpUrl] = Field(min_length=1)
-    destination: DestinationConfig
+
+
+class SourceConfig(BaseModel):
+    url: HttpUrl
     enabled: bool = True
-
-    @field_validator("interval")
-    @classmethod
-    def validate_interval(cls, value: str) -> str:
-        parse_duration(value)
-        return value
-
-    @property
-    def interval_seconds(self) -> int:
-        return parse_duration(self.interval)
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     integrations: IntegrationsConfig
     ai: AIConfig
     storage: StorageConfig
-    monitors: list[MonitorConfig] = Field(min_length=1)
+    filter: FilterConfig
+    sources: list[SourceConfig] = Field(min_length=1)
+    destination: DestinationConfig
 
     @model_validator(mode="after")
-    def validate_unique_monitor_ids(self) -> AppConfig:
-        ids = [monitor.id for monitor in self.monitors]
-        if len(ids) != len(set(ids)):
-            raise ValueError("monitor ids must be unique")
+    def validate_pipeline(self) -> AppConfig:
+        urls = [str(source.url) for source in self.sources]
+        if len(urls) != len(set(urls)):
+            raise ValueError("source URLs must be unique")
+        if self.destination.kind == "telegram" and self.integrations.telegram is None:
+            raise ValueError("telegram destinations require integrations.telegram")
         return self
 
 

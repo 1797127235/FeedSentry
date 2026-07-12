@@ -24,16 +24,13 @@ def entry(identifier: str) -> NormalizedEntry:
     )
 
 
-async def test_new_entry_is_enriched_and_delivered_once(
-    repository, fake_feed_client, make_monitor
-) -> None:
-    monitor = make_monitor()
+async def test_new_entry_is_enriched_and_delivered_once(repository, fake_feed_client) -> None:
     ingestion = IngestionService(repository, fake_feed_client)
     fake_feed_client.result = FeedFetchResult(False, "one", None, (entry("old"),))
-    assert await ingestion.poll_monitor_source(monitor, "https://example.com/feed") == 0
+    assert await ingestion.poll_source("https://example.com/feed", "Important releases") == 0
 
     fake_feed_client.result = FeedFetchResult(False, "two", None, (entry("old"), entry("new")))
-    assert await ingestion.poll_monitor_source(monitor, "https://example.com/feed") == 1
+    assert await ingestion.poll_source("https://example.com/feed", "Important releases") == 1
     event_id = (await repository.list_due_event_ids(datetime.now(UTC), 20))[0]
 
     ai = FakeAIClient()

@@ -5,7 +5,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
-from feedsentry.domain import DecisionAction, EventStatus, ScreeningDecision
+from feedsentry.config import DestinationConfig
+from feedsentry.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
 from feedsentry.repository import EventBundle, Repository
 
 
@@ -23,8 +24,14 @@ class Apprise(Protocol):
     async def notify(self, key: str, title: str, body: str) -> str: ...
 
 
-class DestinationResolver(Protocol):
-    def __call__(self, monitor_id: str) -> str: ...
+class DestinationProvider(Protocol):
+    def __call__(self) -> str | DestinationConfig: ...
+
+
+class Telegram(Protocol):
+    chat_id: str
+
+    async def notify(self, notification: Notification) -> str: ...
 
 
 class EventProcessor:
@@ -34,14 +41,16 @@ class EventProcessor:
         ai: AI,
         firecrawl: Firecrawl,
         apprise: Apprise,
-        apprise_key: str | DestinationResolver,
+        destination: str | DestinationConfig | DestinationProvider,
+        telegram: Telegram | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.repository = repository
         self.ai = ai
         self.firecrawl = firecrawl
         self.apprise = apprise
-        self.apprise_key = apprise_key
+        self.destination = destination
+        self.telegram = telegram
         self.clock = clock or (lambda: datetime.now(UTC))
 
     async def process_event(self, event_id: int) -> None:
@@ -147,14 +156,29 @@ class EventProcessor:
         )
 
     async def _deliver(self, bundle: EventBundle) -> None:
-        apprise_key = (
-            self.apprise_key(bundle.event.monitor_id)
-            if callable(self.apprise_key)
-            else self.apprise_key
-        )
-        delivery = await self.repository.create_delivery(bundle.event.id, apprise_key)
+        destination = self.destination() if callable(self.destination) else self.destination
         title = bundle.event.output_title or bundle.entry.title
         summary = bundle.event.output_summary or bundle.entry.summary
+        if isinstance(destination, DestinationConfig) and destination.kind == "telegram":
+            if self.telegram is None:
+                raise RuntimeError("telegram destination is not configured")
+            delivery = await self.repository.create_delivery(
+                bundle.event.id, f"telegram:{self.telegram.chat_id}"
+            )
+            response = await self.telegram.notify(
+                Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
+            )
+            await self.repository.mark_delivery_success(delivery.id, response)
+            await self.repository.transition_event(
+                bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
+            )
+            return
+        apprise_key = (
+            destination.apprise_key if isinstance(destination, DestinationConfig) else destination
+        )
+        if apprise_key is None:
+            raise RuntimeError("apprise destination is not configured")
+        delivery = await self.repository.create_delivery(bundle.event.id, apprise_key)
         reason = bundle.event.decision_reason or "Relevant to the monitoring goal"
         body = f"{summary}\n\nReason: {reason}\n\n{bundle.entry.link}"
         response = await self.apprise.notify(apprise_key, title, body)

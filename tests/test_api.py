@@ -29,7 +29,19 @@ async def test_health_and_status_do_not_expose_secrets() -> None:
     config = type(
         "ConfigManager",
         (),
-        {"current": type("Config", (), {"monitors": [object()]})(), "last_error": None},
+        {
+            "current": type(
+                "Config",
+                (),
+                {
+                    "sources": [
+                        type("Source", (), {"enabled": True})(),
+                        type("Source", (), {"enabled": False})(),
+                    ]
+                },
+            )(),
+            "last_error": None,
+        },
     )()
     app.state.services = FakeServices(
         config, FakeRepository(), type("Scheduler", (), {"last_tick_at": None})()
@@ -41,5 +53,6 @@ async def test_health_and_status_do_not_expose_secrets() -> None:
 
     assert live.json() == {"status": "ok"}
     assert ready.status_code == 200
-    assert status.json()["monitors"] == 1
+    assert status.json()["sources"] == 2
+    assert status.json()["enabled_sources"] == 1
     assert "secret-ai-key" not in status.text

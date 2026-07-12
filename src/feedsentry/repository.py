@@ -8,7 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from feedsentry.database import DeliveryRow, EntryRow, FeedStateRow, MonitorEventRow, ScrapeCacheRow
+from feedsentry.database import DeliveryRow, EntryRow, EventRow, FeedStateRow, ScrapeCacheRow
 from feedsentry.domain import EventStatus, assert_transition, next_retry_at
 
 
@@ -29,7 +29,6 @@ class EntryRecord:
 
 @dataclass(frozen=True)
 class FeedStateRecord:
-    monitor_id: str
     source_url: str
     etag: str | None
     last_modified: str | None
@@ -43,7 +42,6 @@ class FeedStateRecord:
 @dataclass(frozen=True)
 class EventRecord:
     id: int
-    monitor_id: str
     entry_id: int
     status: EventStatus
     resume_stage: EventStatus | None
@@ -106,9 +104,9 @@ class Repository:
         async with self._session_factory() as session:
             pending = await session.scalar(
                 select(func.count())
-                .select_from(MonitorEventRow)
+                .select_from(EventRow)
                 .where(
-                    MonitorEventRow.status.not_in(
+                    EventRow.status.not_in(
                         (
                             EventStatus.FILTERED.value,
                             EventStatus.DELIVERED.value,
@@ -119,28 +117,26 @@ class Repository:
             )
             failed = await session.scalar(
                 select(func.count())
-                .select_from(MonitorEventRow)
-                .where(MonitorEventRow.status == EventStatus.FAILED.value)
+                .select_from(EventRow)
+                .where(EventRow.status == EventStatus.FAILED.value)
             )
         return StatusCounts(pending=int(pending or 0), failed=int(failed or 0))
 
-    async def feed_is_initialized(self, monitor_id: str, source_url: str) -> bool:
+    async def feed_is_initialized(self, source_url: str) -> bool:
         async with self._session_factory() as session:
             result = await session.scalar(
                 select(FeedStateRow.initialized_at).where(
-                    FeedStateRow.monitor_id == monitor_id,
                     FeedStateRow.source_url == source_url,
                 )
             )
         return result is not None
 
-    async def get_feed_state(self, monitor_id: str, source_url: str) -> FeedStateRecord | None:
+    async def get_feed_state(self, source_url: str) -> FeedStateRecord | None:
         async with self._session_factory() as session:
-            row = await session.get(FeedStateRow, (monitor_id, source_url))
+            row = await session.get(FeedStateRow, source_url)
         if row is None:
             return None
         return FeedStateRecord(
-            monitor_id=row.monitor_id,
             source_url=row.source_url,
             etag=row.etag,
             last_modified=row.last_modified,
@@ -153,7 +149,6 @@ class Repository:
 
     async def record_feed_success(
         self,
-        monitor_id: str,
         source_url: str,
         *,
         etag: str | None,
@@ -162,7 +157,6 @@ class Repository:
         next_check_at: datetime,
     ) -> None:
         statement = insert(FeedStateRow).values(
-            monitor_id=monitor_id,
             source_url=source_url,
             etag=etag,
             last_modified=last_modified,
@@ -172,7 +166,7 @@ class Repository:
             last_error=None,
         )
         statement = statement.on_conflict_do_update(
-            index_elements=("monitor_id", "source_url"),
+            index_elements=("source_url",),
             set_={
                 "etag": statement.excluded.etag,
                 "last_modified": statement.excluded.last_modified,
@@ -187,7 +181,6 @@ class Repository:
 
     async def record_feed_failure(
         self,
-        monitor_id: str,
         source_url: str,
         *,
         error: str,
@@ -196,14 +189,13 @@ class Repository:
     ) -> None:
         del checked_at
         statement = insert(FeedStateRow).values(
-            monitor_id=monitor_id,
             source_url=source_url,
             consecutive_failures=1,
             next_check_at=next_check_at,
             last_error=error,
         )
         statement = statement.on_conflict_do_update(
-            index_elements=("monitor_id", "source_url"),
+            index_elements=("source_url",),
             set_={
                 "consecutive_failures": FeedStateRow.consecutive_failures + 1,
                 "next_check_at": statement.excluded.next_check_at,
@@ -213,22 +205,19 @@ class Repository:
         async with self._session_factory.begin() as session:
             await session.execute(statement)
 
-    async def source_is_due(self, monitor_id: str, source_url: str, now: datetime) -> bool:
-        state = await self.get_feed_state(monitor_id, source_url)
+    async def source_is_due(self, source_url: str, now: datetime) -> bool:
+        state = await self.get_feed_state(source_url)
         return state is None or state.next_check_at is None or state.next_check_at <= now
 
-    async def mark_feed_initialized(
-        self, monitor_id: str, source_url: str, initialized_at: datetime
-    ) -> None:
+    async def mark_feed_initialized(self, source_url: str, initialized_at: datetime) -> None:
         statement = (
             insert(FeedStateRow)
             .values(
-                monitor_id=monitor_id,
                 source_url=source_url,
                 initialized_at=initialized_at,
                 consecutive_failures=0,
             )
-            .on_conflict_do_nothing(index_elements=("monitor_id", "source_url"))
+            .on_conflict_do_nothing(index_elements=("source_url",))
         )
         async with self._session_factory.begin() as session:
             await session.execute(statement)
@@ -288,17 +277,14 @@ class Repository:
 
     async def count_events(self) -> int:
         async with self._session_factory() as session:
-            count = await session.scalar(select(func.count()).select_from(MonitorEventRow))
+            count = await session.scalar(select(func.count()).select_from(EventRow))
         return int(count or 0)
 
-    async def create_event(
-        self, monitor_id: str, entry_id: int, goal: str, goal_digest: str
-    ) -> int:
+    async def create_event(self, entry_id: int, goal: str, goal_digest: str) -> int:
         now = datetime.now(UTC)
         statement = (
-            insert(MonitorEventRow)
+            insert(EventRow)
             .values(
-                monitor_id=monitor_id,
                 entry_id=entry_id,
                 status=EventStatus.DISCOVERED.value,
                 goal_snapshot=goal,
@@ -307,15 +293,12 @@ class Repository:
                 created_at=now,
                 updated_at=now,
             )
-            .on_conflict_do_nothing(index_elements=("monitor_id", "entry_id"))
+            .on_conflict_do_nothing(index_elements=("entry_id",))
         )
         async with self._session_factory.begin() as session:
             await session.execute(statement)
             event_id = await session.scalar(
-                select(MonitorEventRow.id).where(
-                    MonitorEventRow.monitor_id == monitor_id,
-                    MonitorEventRow.entry_id == entry_id,
-                )
+                select(EventRow.id).where(EventRow.entry_id == entry_id)
             )
         if event_id is None:
             raise RuntimeError("event insert did not produce an id")
@@ -323,16 +306,15 @@ class Repository:
 
     async def get_event(self, event_id: int) -> EventRecord:
         async with self._session_factory() as session:
-            row = await session.get(MonitorEventRow, event_id)
+            row = await session.get(EventRow, event_id)
         if row is None:
             raise LookupError(f"event not found: {event_id}")
         return self._event_record(row)
 
     @staticmethod
-    def _event_record(row: MonitorEventRow) -> EventRecord:
+    def _event_record(row: EventRow) -> EventRecord:
         return EventRecord(
             id=row.id,
-            monitor_id=row.monitor_id,
             entry_id=row.entry_id,
             status=EventStatus(row.status),
             resume_stage=EventStatus(row.resume_stage) if row.resume_stage is not None else None,
@@ -390,10 +372,10 @@ class Repository:
     async def get_event_bundle(self, event_id: int) -> EventBundle:
         async with self._session_factory() as session:
             row = await session.execute(
-                select(MonitorEventRow, EntryRow, ScrapeCacheRow)
-                .join(EntryRow, MonitorEventRow.entry_id == EntryRow.id)
+                select(EventRow, EntryRow, ScrapeCacheRow)
+                .join(EntryRow, EventRow.entry_id == EntryRow.id)
                 .outerjoin(ScrapeCacheRow, ScrapeCacheRow.url == EntryRow.link)
-                .where(MonitorEventRow.id == event_id)
+                .where(EventRow.id == event_id)
             )
             result = row.one_or_none()
         if result is None:
@@ -409,7 +391,7 @@ class Repository:
         self, event_id: int, current: EventStatus, target: EventStatus, **updates: object
     ) -> bool:
         assert_transition(current, target)
-        valid_updates = set(MonitorEventRow.__table__.columns.keys()) - {
+        valid_updates = set(EventRow.__table__.columns.keys()) - {
             "id",
             "status",
             "created_at",
@@ -420,8 +402,8 @@ class Repository:
             raise ValueError(f"unsupported event updates: {', '.join(sorted(unknown))}")
         values = {"status": target.value, "updated_at": datetime.now(UTC), **updates}
         statement = (
-            update(MonitorEventRow)
-            .where(MonitorEventRow.id == event_id, MonitorEventRow.status == current.value)
+            update(EventRow)
+            .where(EventRow.id == event_id, EventRow.status == current.value)
             .values(**values)
         )
         async with self._session_factory.begin() as session:
@@ -437,11 +419,11 @@ class Repository:
         )
         now = datetime.now(UTC)
         statement = (
-            update(MonitorEventRow)
-            .where(MonitorEventRow.status.in_(in_progress))
+            update(EventRow)
+            .where(EventRow.status.in_(in_progress))
             .values(
                 status=EventStatus.RETRY_WAIT.value,
-                resume_stage=MonitorEventRow.status,
+                resume_stage=EventRow.status,
                 next_attempt_at=now,
                 updated_at=now,
             )
@@ -520,7 +502,7 @@ class Repository:
         self, event_id: int, failed_stage: EventStatus, error: str
     ) -> None:
         async with self._session_factory.begin() as session:
-            row = await session.get(MonitorEventRow, event_id)
+            row = await session.get(EventRow, event_id)
             if row is None:
                 raise LookupError(f"event not found: {event_id}")
             if EventStatus(row.status) is not failed_stage:
@@ -545,7 +527,7 @@ class Repository:
 
     async def resume_event(self, event_id: int) -> None:
         async with self._session_factory.begin() as session:
-            row = await session.get(MonitorEventRow, event_id)
+            row = await session.get(EventRow, event_id)
             if row is None:
                 raise LookupError(f"event not found: {event_id}")
             if EventStatus(row.status) is not EventStatus.RETRY_WAIT or row.resume_stage is None:
@@ -559,10 +541,10 @@ class Repository:
 
     async def make_event_due(self, event_id: int) -> None:
         statement = (
-            update(MonitorEventRow)
+            update(EventRow)
             .where(
-                MonitorEventRow.id == event_id,
-                MonitorEventRow.status == EventStatus.RETRY_WAIT.value,
+                EventRow.id == event_id,
+                EventRow.status == EventStatus.RETRY_WAIT.value,
             )
             .values(next_attempt_at=datetime.now(UTC), updated_at=datetime.now(UTC))
         )
@@ -572,15 +554,15 @@ class Repository:
     async def list_due_event_ids(self, now: datetime, limit: int) -> list[int]:
         async with self._session_factory() as session:
             rows = await session.scalars(
-                select(MonitorEventRow.id)
+                select(EventRow.id)
                 .where(
-                    (MonitorEventRow.status == EventStatus.DISCOVERED.value)
+                    (EventRow.status == EventStatus.DISCOVERED.value)
                     | (
-                        (MonitorEventRow.status == EventStatus.RETRY_WAIT.value)
-                        & (MonitorEventRow.next_attempt_at <= now)
+                        (EventRow.status == EventStatus.RETRY_WAIT.value)
+                        & (EventRow.next_attempt_at <= now)
                     )
                 )
-                .order_by(MonitorEventRow.created_at)
+                .order_by(EventRow.created_at)
                 .limit(limit)
             )
             return list(rows)
