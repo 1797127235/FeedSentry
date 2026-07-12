@@ -106,6 +106,11 @@ def test_destination_config_rejects_invalid_kind_and_key_combinations(kwargs, ma
         DestinationConfig(**kwargs)
 
 
+def test_destination_config_rejects_explicit_null_apprise_key_for_telegram() -> None:
+    with pytest.raises(ValidationError, match="apprise_key"):
+        DestinationConfig(kind="telegram", apprise_key=None)
+
+
 def test_load_config_rejects_duplicate_monitor_ids(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
     config_path = tmp_path / "config.yaml"

@@ -63,7 +63,7 @@ class DestinationConfig(BaseModel):
     def validate_kind_fields(self) -> DestinationConfig:
         if self.kind == "apprise" and self.apprise_key is None:
             raise ValueError("apprise destinations require apprise_key")
-        if self.kind == "telegram" and self.apprise_key is not None:
+        if self.kind == "telegram" and "apprise_key" in self.model_fields_set:
             raise ValueError("telegram destinations must not include apprise_key")
         return self
 
