@@ -60,27 +60,25 @@ class TelegramNotifier:
 
     async def notify(self, notification: Notification) -> str:
         message = render_telegram_message(notification)
-        response = await self.http.post(
-            f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
-            json={
-                "chat_id": self.chat_id,
-                "text": message.text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-                "reply_markup": message.reply_markup,
-            },
-        )
         try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as error:
-            redacted_request = httpx.Request(
-                "POST", "https://api.telegram.org/bot<redacted>/sendMessage"
+            response = await self.http.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                json={
+                    "chat_id": self.chat_id,
+                    "text": message.text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                    "reply_markup": message.reply_markup,
+                },
             )
-            raise httpx.HTTPStatusError(
-                "Telegram API request failed",
-                request=redacted_request,
-                response=error.response,
-            ) from None
+            response.raise_for_status()
+        except httpx.HTTPError:
+            request_failed = True
+        else:
+            request_failed = False
+
+        if request_failed:
+            raise ValueError("Telegram API request failed")
 
         payload = response.json()
         if not isinstance(payload, dict) or payload.get("ok") is not True:

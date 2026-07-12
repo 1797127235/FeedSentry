@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import FrozenInstanceError
 
 import httpx
 import pytest
 import respx
 
 from feedsentry.domain import Notification
-from feedsentry.telegram import TelegramNotifier, render_telegram_message
+from feedsentry.telegram import TelegramMessage, TelegramNotifier, render_telegram_message
 
 
 def make_notification(**changes: str) -> Notification:
@@ -68,6 +69,27 @@ def test_render_telegram_message_does_not_split_html_entities_when_truncating() 
     assert message.text.removesuffix("…").endswith(";")
 
 
+def test_render_telegram_message_keeps_complete_escaped_source_and_title_when_truncated() -> None:
+    notification = make_notification(
+        source_url="https://source&name.example/feed.xml",
+        title='<Title & "quoted">',
+        summary="long summary " * 1000,
+    )
+
+    message = render_telegram_message(notification)
+
+    assert "<i>Source: source&amp;name.example</i>" in message.text
+    assert "<b>&lt;Title &amp; &quot;quoted&quot;&gt;</b>" in message.text
+    assert message.text.endswith("…")
+
+
+def test_telegram_message_is_immutable() -> None:
+    message = TelegramMessage(text="message", reply_markup={})
+
+    with pytest.raises(FrozenInstanceError):
+        message.text = "changed"
+
+
 def test_render_telegram_message_rejects_source_and_title_that_exceed_limit() -> None:
     with pytest.raises(ValueError, match="source and title"):
         render_telegram_message(make_notification(title="🙂" * 2050))
@@ -95,16 +117,38 @@ async def test_telegram_notifier_sends_expected_json_and_returns_message_id() ->
 
 
 @respx.mock
-async def test_telegram_notifier_raises_sanitized_http_error() -> None:
+async def test_telegram_notifier_hides_token_for_http_errors() -> None:
     respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
         return_value=httpx.Response(502)
     )
 
     async with httpx.AsyncClient() as http:
-        with pytest.raises(httpx.HTTPStatusError) as error:
+        with pytest.raises(ValueError, match="Telegram API request failed") as error:
             await TelegramNotifier(http, "secret-token", "-100123").notify(make_notification())
 
     assert "secret-token" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert not hasattr(error.value, "request")
+    assert not hasattr(error.value, "response")
+
+
+@respx.mock
+async def test_telegram_notifier_hides_token_for_transport_errors() -> None:
+    request = httpx.Request("POST", "https://api.telegram.org/botsecret-token/sendMessage")
+    respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
+        side_effect=httpx.ConnectError("connection failed", request=request)
+    )
+
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(ValueError, match="Telegram API request failed") as error:
+            await TelegramNotifier(http, "secret-token", "-100123").notify(make_notification())
+
+    assert "secret-token" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert not hasattr(error.value, "request")
+    assert not hasattr(error.value, "response")
 
 
 @respx.mock
@@ -118,11 +162,20 @@ async def test_telegram_notifier_rejects_api_response_with_ok_false() -> None:
             await TelegramNotifier(http, "secret-token", "-100123").notify(make_notification())
 
 
-@pytest.mark.parametrize("result", [{}, {"message_id": "42"}, {"message_id": True}])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"ok": True},
+        {"ok": True, "result": "not a dictionary"},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"message_id": "42"}},
+        {"ok": True, "result": {"message_id": True}},
+    ],
+)
 @respx.mock
-async def test_telegram_notifier_rejects_missing_or_invalid_message_id(result: object) -> None:
+async def test_telegram_notifier_rejects_missing_or_invalid_message_id(payload: object) -> None:
     respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": result})
+        return_value=httpx.Response(200, json=payload)
     )
 
     async with httpx.AsyncClient() as http:
