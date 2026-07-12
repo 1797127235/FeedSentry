@@ -22,8 +22,10 @@ async def ready(request: Request) -> dict[str, str]:
 async def status(request: Request) -> dict[str, object]:
     services = request.app.state.services
     counts = await services.repository.status_counts()
+    sources = services.config_manager.current.sources
     return {
-        "monitors": len(services.config_manager.current.monitors),
+        "sources": len(sources),
+        "enabled_sources": sum(source.enabled for source in sources),
         "last_tick_at": services.scheduler.last_tick_at,
         "pending_events": counts.pending,
         "failed_events": counts.failed,

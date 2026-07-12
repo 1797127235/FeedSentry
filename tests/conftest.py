@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 
-from feedsentry.config import DestinationConfig, MonitorConfig
 from feedsentry.database import create_database
 from feedsentry.feeds import FeedFetchResult
 from feedsentry.repository import Repository
@@ -95,18 +92,3 @@ async def repository(database) -> Repository:
 @pytest.fixture
 def fake_feed_client() -> FakeFeedClient:
     return FakeFeedClient()
-
-
-@pytest.fixture
-def make_monitor() -> Callable[[], MonitorConfig]:
-    def factory() -> MonitorConfig:
-        return MonitorConfig(
-            id="monitor-a",
-            name="Example monitor",
-            goal="Important releases",
-            interval="10m",
-            sources=["https://example.com/feed"],
-            destination=DestinationConfig(apprise_key="telegram"),
-        )
-
-    return factory

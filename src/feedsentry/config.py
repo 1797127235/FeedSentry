@@ -7,20 +7,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 ENV_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 SECRET_KEYS = {"api_key", "password", "token", "secret"}
-
-
-def parse_duration(value: str) -> int:
-    match = re.fullmatch(r"([1-9][0-9]*)([smhd])", value.strip())
-    if not match:
-        raise ValueError("interval must use s,m,h,d (example 10m)")
-
-    amount = int(match.group(1))
-    unit = match.group(2)
-    return amount * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
 
 
 class FirecrawlConfig(BaseModel):
@@ -68,43 +58,31 @@ class DestinationConfig(BaseModel):
         return self
 
 
-class MonitorConfig(BaseModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
-    name: str = Field(min_length=1)
+class FilterConfig(BaseModel):
     goal: str = Field(min_length=1)
-    interval: str
-    sources: list[HttpUrl] = Field(min_length=1)
-    destination: DestinationConfig
+
+
+class SourceConfig(BaseModel):
+    url: HttpUrl
     enabled: bool = True
-
-    @field_validator("interval")
-    @classmethod
-    def validate_interval(cls, value: str) -> str:
-        parse_duration(value)
-        return value
-
-    @property
-    def interval_seconds(self) -> int:
-        return parse_duration(self.interval)
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     integrations: IntegrationsConfig
     ai: AIConfig
     storage: StorageConfig
-    monitors: list[MonitorConfig] = Field(min_length=1)
+    filter: FilterConfig
+    sources: list[SourceConfig] = Field(min_length=1)
+    destination: DestinationConfig
 
     @model_validator(mode="after")
-    def validate_unique_monitor_ids(self) -> AppConfig:
-        ids = [monitor.id for monitor in self.monitors]
-        if len(ids) != len(set(ids)):
-            raise ValueError("monitor ids must be unique")
-        if (
-            any(monitor.destination.kind == "telegram" for monitor in self.monitors)
-            and self.integrations.telegram is None
-        ):
+    def validate_pipeline(self) -> AppConfig:
+        urls = [str(source.url) for source in self.sources]
+        if len(urls) != len(set(urls)):
+            raise ValueError("source URLs must be unique")
+        if self.destination.kind == "telegram" and self.integrations.telegram is None:
             raise ValueError("telegram destinations require integrations.telegram")
         return self
 

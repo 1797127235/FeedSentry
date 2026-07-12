@@ -37,7 +37,6 @@ class Base(DeclarativeBase):
 class FeedStateRow(Base):
     __tablename__ = "feed_state"
 
-    monitor_id: Mapped[str] = mapped_column(primary_key=True)
     source_url: Mapped[str] = mapped_column(primary_key=True)
     etag: Mapped[str | None]
     last_modified: Mapped[str | None]
@@ -65,13 +64,11 @@ class EntryRow(Base):
     first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
 
 
-class MonitorEventRow(Base):
-    __tablename__ = "monitor_events"
-    __table_args__ = (UniqueConstraint("monitor_id", "entry_id"),)
+class EventRow(Base):
+    __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    monitor_id: Mapped[str] = mapped_column(index=True)
-    entry_id: Mapped[int] = mapped_column(ForeignKey("entries.id"))
+    entry_id: Mapped[int] = mapped_column(ForeignKey("entries.id"), unique=True)
     status: Mapped[str] = mapped_column(index=True)
     resume_stage: Mapped[str | None]
     goal_snapshot: Mapped[str]
@@ -103,7 +100,7 @@ class DeliveryRow(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    event_id: Mapped[int] = mapped_column(ForeignKey("monitor_events.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"))
     apprise_key: Mapped[str]
     idempotency_key: Mapped[str]
     status: Mapped[str]

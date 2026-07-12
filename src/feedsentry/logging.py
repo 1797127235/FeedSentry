@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime
 
 _SECRET_PATTERN = re.compile(r"(?i)\b(api_key|token|password|secret)=([^\s,;&]+)")
-_CONTEXT_FIELDS = ("monitor_id", "entry_id", "event_id", "stage", "attempt")
+_CONTEXT_FIELDS = ("source_url", "entry_id", "event_id", "stage", "attempt")
 
 
 class JsonFormatter(logging.Formatter):

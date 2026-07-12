@@ -24,8 +24,8 @@ class Apprise(Protocol):
     async def notify(self, key: str, title: str, body: str) -> str: ...
 
 
-class DestinationResolver(Protocol):
-    def __call__(self, monitor_id: str) -> str | DestinationConfig: ...
+class DestinationProvider(Protocol):
+    def __call__(self) -> str | DestinationConfig: ...
 
 
 class Telegram(Protocol):
@@ -41,7 +41,7 @@ class EventProcessor:
         ai: AI,
         firecrawl: Firecrawl,
         apprise: Apprise,
-        apprise_key: str | DestinationResolver,
+        destination: str | DestinationConfig | DestinationProvider,
         telegram: Telegram | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -49,7 +49,7 @@ class EventProcessor:
         self.ai = ai
         self.firecrawl = firecrawl
         self.apprise = apprise
-        self.apprise_key = apprise_key
+        self.destination = destination
         self.telegram = telegram
         self.clock = clock or (lambda: datetime.now(UTC))
 
@@ -156,11 +156,7 @@ class EventProcessor:
         )
 
     async def _deliver(self, bundle: EventBundle) -> None:
-        destination = (
-            self.apprise_key(bundle.event.monitor_id)
-            if callable(self.apprise_key)
-            else self.apprise_key
-        )
+        destination = self.destination() if callable(self.destination) else self.destination
         title = bundle.event.output_title or bundle.entry.title
         summary = bundle.event.output_summary or bundle.entry.summary
         if isinstance(destination, DestinationConfig) and destination.kind == "telegram":

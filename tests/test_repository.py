@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import insert
 from sqlalchemy.exc import IntegrityError
 
-from feedsentry.database import DeliveryRow, MonitorEventRow, create_database
+from feedsentry.database import DeliveryRow, EventRow, create_database
 from feedsentry.domain import EventStatus
 from feedsentry.repository import Repository
 
@@ -26,8 +26,7 @@ async def repository(database):
 async def test_database_enforces_foreign_keys_on_every_connection(database) -> None:
     await database.engine.dispose()
     now = datetime.now(UTC)
-    invalid_event = insert(MonitorEventRow).values(
-        monitor_id="monitor-a",
+    invalid_event = insert(EventRow).values(
         entry_id=999,
         status=EventStatus.DISCOVERED.value,
         goal_snapshot="goal",
@@ -54,13 +53,13 @@ async def test_database_enforces_foreign_keys_on_every_connection(database) -> N
             await session.rollback()
 
 
-async def test_feed_baseline_is_scoped_to_monitor(repository: Repository) -> None:
+async def test_feed_baseline_is_scoped_to_source(repository: Repository) -> None:
     now = datetime.now(UTC)
 
-    await repository.mark_feed_initialized("monitor-a", "https://example.com/feed", now)
+    await repository.mark_feed_initialized("https://example.com/feed", now)
 
-    assert await repository.feed_is_initialized("monitor-a", "https://example.com/feed")
-    assert not await repository.feed_is_initialized("monitor-b", "https://example.com/feed")
+    assert await repository.feed_is_initialized("https://example.com/feed")
+    assert not await repository.feed_is_initialized("https://example.com/other")
 
 
 async def test_database_initializes_wal_and_all_storage_tables(tmp_path) -> None:
@@ -77,7 +76,8 @@ async def test_database_initializes_wal_and_all_storage_tables(tmp_path) -> None
         }
 
     assert journal_mode == "wal"
-    assert {"feed_state", "entries", "monitor_events", "scrape_cache", "deliveries"} <= tables
+    assert {"feed_state", "entries", "events", "scrape_cache", "deliveries"} <= tables
+    assert "monitor_events" not in tables
 
 
 async def test_event_insert_is_idempotent(repository: Repository) -> None:
@@ -93,8 +93,8 @@ async def test_event_insert_is_idempotent(repository: Repository) -> None:
         raw_json="{}",
     )
 
-    first = await repository.create_event("monitor-a", entry.id, "goal", "goal-hash")
-    second = await repository.create_event("monitor-a", entry.id, "goal", "goal-hash")
+    first = await repository.create_event(entry.id, "goal", "goal-hash")
+    second = await repository.create_event(entry.id, "goal", "goal-hash")
 
     assert first == second
 
@@ -111,7 +111,7 @@ async def test_recovery_returns_in_progress_events_to_retry(repository: Reposito
         content_hash="hash-2",
         raw_json="{}",
     )
-    event_id = await repository.create_event("monitor-a", entry.id, "goal", "goal-hash")
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
 
     await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
     await repository.transition_event(event_id, EventStatus.SCREENING, EventStatus.FETCHING)
@@ -140,7 +140,7 @@ async def test_transition_does_not_overwrite_an_event_advanced_by_another_worker
         content_hash="hash-3",
         raw_json="{}",
     )
-    event_id = await repository.create_event("monitor-a", entry.id, "goal", "goal-hash")
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
 
     assert await repository.transition_event(
         event_id, EventStatus.DISCOVERED, EventStatus.SCREENING
@@ -155,7 +155,6 @@ async def test_feed_success_persists_validators_and_due_time(repository: Reposit
     next_check_at = checked_at + timedelta(minutes=10)
 
     await repository.record_feed_success(
-        "monitor-a",
         "https://example.com/feed",
         etag='"v1"',
         last_modified="Fri, 11 Jul 2026 00:00:00 GMT",
@@ -163,16 +162,16 @@ async def test_feed_success_persists_validators_and_due_time(repository: Reposit
         next_check_at=next_check_at,
     )
 
-    state = await repository.get_feed_state("monitor-a", "https://example.com/feed")
+    state = await repository.get_feed_state("https://example.com/feed")
     assert state is not None
     assert state.etag == '"v1"'
     assert state.last_modified == "Fri, 11 Jul 2026 00:00:00 GMT"
     assert state.last_success_at == checked_at
     assert state.consecutive_failures == 0
-    assert not await repository.source_is_due("monitor-a", "https://example.com/feed", checked_at)
-    assert await repository.source_is_due("monitor-a", "https://example.com/feed", next_check_at)
+    assert not await repository.source_is_due("https://example.com/feed", checked_at)
+    assert await repository.source_is_due("https://example.com/feed", next_check_at)
     assert await repository.source_is_due(
-        "monitor-a", "https://example.com/feed", next_check_at + timedelta(microseconds=1)
+        "https://example.com/feed", next_check_at + timedelta(microseconds=1)
     )
 
 
@@ -181,7 +180,6 @@ async def test_feed_failure_increments_failures_and_preserves_validators(
 ) -> None:
     now = datetime(2026, 7, 11, tzinfo=UTC)
     await repository.record_feed_success(
-        "monitor-a",
         "https://example.com/feed",
         etag='"v1"',
         last_modified="Fri, 11 Jul 2026 00:00:00 GMT",
@@ -189,14 +187,13 @@ async def test_feed_failure_increments_failures_and_preserves_validators(
         next_check_at=now,
     )
     await repository.record_feed_failure(
-        "monitor-a",
         "https://example.com/feed",
         error="timeout",
         checked_at=now,
         next_check_at=now + timedelta(minutes=1),
     )
 
-    state = await repository.get_feed_state("monitor-a", "https://example.com/feed")
+    state = await repository.get_feed_state("https://example.com/feed")
     assert state is not None
     assert state.etag == '"v1"'
     assert state.last_modified == "Fri, 11 Jul 2026 00:00:00 GMT"

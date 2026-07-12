@@ -10,13 +10,10 @@ ai:
   model: ${AI_MODEL}
 storage:
   path: ./data/feedsentry.db
-monitors:
-  - id: example-releases
-    name: Example releases
-    goal: Important product releases
-    interval: 10m # Use a positive number plus s, m, h, or d.
-    sources:
-      - https://example.com/feed.xml
-    destination:
-      apprise_key: telegram
+filter:
+  goal: Important product releases
+sources:
+  - url: https://example.com/feed.xml
     enabled: false
+destination:
+  apprise_key: telegram

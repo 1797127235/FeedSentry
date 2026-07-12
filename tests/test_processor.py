@@ -30,7 +30,7 @@ async def processor_fixture(repository) -> ProcessorFixture:
         content_hash="entry-hash",
         raw_json="{}",
     )
-    event_id = await repository.create_event("monitor-a", entry.id, "Important releases", "goal")
+    event_id = await repository.create_event(entry.id, "Important releases", "goal")
     ai = FakeAIClient()
     firecrawl = FakeFirecrawlClient()
     apprise = FakeAppriseClient()
@@ -104,16 +104,14 @@ async def test_apprise_failure_retries_delivery_without_repeating_ai(
     assert fixture.apprise.calls == 2
 
 
-async def test_delivery_resolves_destination_from_monitor(
-    processor_fixture: ProcessorFixture,
-) -> None:
+async def test_delivery_uses_global_destination(processor_fixture: ProcessorFixture) -> None:
     fixture = processor_fixture
     fixture.processor = EventProcessor(
         fixture.repository,
         fixture.ai,
         fixture.firecrawl,
         fixture.apprise,
-        lambda monitor_id: f"destination-{monitor_id}",
+        "global-destination",
     )
     fixture.ai.screen_result = ScreeningDecision(
         action=DecisionAction.ACCEPT,
@@ -124,4 +122,28 @@ async def test_delivery_resolves_destination_from_monitor(
 
     await fixture.processor.process_event(fixture.event_id)
 
-    assert fixture.apprise.notifications[0][0] == "destination-monitor-a"
+    assert fixture.apprise.notifications[0][0] == "global-destination"
+
+
+async def test_delivery_reads_current_global_destination(
+    processor_fixture: ProcessorFixture,
+) -> None:
+    fixture = processor_fixture
+    current = {"key": "updated-destination"}
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        lambda: current["key"],
+    )
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    assert fixture.apprise.notifications[0][0] == "updated-destination"

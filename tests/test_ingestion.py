@@ -22,53 +22,45 @@ def entry(external_id: str) -> NormalizedEntry:
     )
 
 
-async def test_first_fetch_creates_baseline_without_events(
-    repository, fake_feed_client, make_monitor
-) -> None:
+async def test_first_fetch_creates_baseline_without_events(repository, fake_feed_client) -> None:
     fake_feed_client.result = FeedFetchResult(False, "etag", None, (entry("old"),))
 
-    created = await IngestionService(repository, fake_feed_client).poll_monitor_source(
-        make_monitor(), "https://example.com/feed"
+    created = await IngestionService(repository, fake_feed_client).poll_source(
+        "https://example.com/feed", "Important releases"
     )
 
     assert created == 0
     assert await repository.count_events() == 0
-    state = await repository.get_feed_state("monitor-a", "https://example.com/feed")
+    state = await repository.get_feed_state("https://example.com/feed")
     assert state is not None
     assert state.initialized_at is not None
     assert state.etag == "etag"
 
 
-async def test_later_fetch_creates_one_event_per_new_entry(
-    repository, fake_feed_client, make_monitor
-) -> None:
-    monitor = make_monitor()
+async def test_later_fetch_creates_one_event_per_new_entry(repository, fake_feed_client) -> None:
     service = IngestionService(repository, fake_feed_client)
     fake_feed_client.result = FeedFetchResult(False, "e1", None, (entry("old"),))
-    await service.poll_monitor_source(monitor, "https://example.com/feed")
+    await service.poll_source("https://example.com/feed", "Important releases")
     fake_feed_client.result = FeedFetchResult(False, "e2", None, (entry("old"), entry("new")))
 
-    created = await service.poll_monitor_source(monitor, "https://example.com/feed")
+    created = await service.poll_source("https://example.com/feed", "Important releases")
 
     assert created == 1
     assert await repository.count_events() == 1
     assert fake_feed_client.calls[1] == ("https://example.com/feed", "e1", None)
 
 
-async def test_not_modified_records_success_without_events(
-    repository, fake_feed_client, make_monitor
-) -> None:
-    monitor = make_monitor()
+async def test_not_modified_records_success_without_events(repository, fake_feed_client) -> None:
     service = IngestionService(repository, fake_feed_client)
     fake_feed_client.result = FeedFetchResult(False, "e1", "yesterday", (entry("old"),))
-    await service.poll_monitor_source(monitor, "https://example.com/feed")
+    await service.poll_source("https://example.com/feed", "Important releases")
     fake_feed_client.result = FeedFetchResult(True, None, None, ())
 
-    created = await service.poll_monitor_source(monitor, "https://example.com/feed")
+    created = await service.poll_source("https://example.com/feed", "Important releases")
 
     assert created == 0
     assert await repository.count_events() == 0
-    state = await repository.get_feed_state(monitor.id, "https://example.com/feed")
+    state = await repository.get_feed_state("https://example.com/feed")
     assert state is not None
     assert state.etag == "e1"
     assert state.last_modified == "yesterday"
@@ -76,11 +68,10 @@ async def test_not_modified_records_success_without_events(
 
 
 async def test_http_error_records_bounded_failure_and_returns_zero(
-    repository, fake_feed_client, make_monitor
+    repository, fake_feed_client
 ) -> None:
     now = datetime.now(UTC)
     await repository.record_feed_success(
-        "monitor-a",
         "https://example.com/feed",
         etag=None,
         last_modified=None,
@@ -89,12 +80,12 @@ async def test_http_error_records_bounded_failure_and_returns_zero(
     )
     fake_feed_client.error = httpx.ConnectError("x" * 2_000)
 
-    created = await IngestionService(repository, fake_feed_client).poll_monitor_source(
-        make_monitor(), "https://example.com/feed"
+    created = await IngestionService(repository, fake_feed_client).poll_source(
+        "https://example.com/feed", "Important releases"
     )
 
     assert created == 0
-    state = await repository.get_feed_state("monitor-a", "https://example.com/feed")
+    state = await repository.get_feed_state("https://example.com/feed")
     assert state is not None
     assert state.consecutive_failures == 1
     assert state.last_error is not None
@@ -107,13 +98,12 @@ async def test_failure_backoff_caps_at_two_hours(repository) -> None:
     now = datetime(2026, 7, 11, tzinfo=UTC)
     for attempt, delay in enumerate((1, 5, 30, 120, 120), start=1):
         await repository.record_feed_failure(
-            "monitor-a",
             "https://example.com/feed",
             error="failed",
             checked_at=now,
             next_check_at=now + timedelta(minutes=delay),
         )
-        state = await repository.get_feed_state("monitor-a", "https://example.com/feed")
+        state = await repository.get_feed_state("https://example.com/feed")
         assert state is not None
         assert state.consecutive_failures == attempt
         assert state.next_check_at == now + timedelta(minutes=delay)

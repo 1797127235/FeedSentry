@@ -63,21 +63,18 @@ def create_app(config_path: Path) -> FastAPI:
         )
         ingestion = IngestionService(repository, feed_client)
 
-        def destination_for_monitor(monitor_id: str):
+        def current_destination():
             current = config_manager.current
             if current is None:
                 raise RuntimeError("configuration is not loaded")
-            for monitor in current.monitors:
-                if monitor.id == monitor_id:
-                    return monitor.destination
-            raise LookupError(f"monitor not found: {monitor_id}")
+            return current.destination
 
         processor = EventProcessor(
             repository,
             ai_client,
             firecrawl_client,
             apprise_client,
-            destination_for_monitor,
+            current_destination,
             telegram_client,
         )
         scheduler = Scheduler(config_manager, repository, ingestion, processor)
