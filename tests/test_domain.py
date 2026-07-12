@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -24,6 +25,18 @@ def test_notification_can_be_constructed() -> None:
     )
 
     assert notification.title == "Release announced"
+
+
+def test_notification_is_immutable() -> None:
+    notification = Notification(
+        title="Release announced",
+        summary="Version 1.0 is available.",
+        source_url="https://example.com/feed.xml",
+        link="https://example.com/releases/1.0",
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        notification.title = "Changed title"
 
 
 def test_accept_decision_requires_summary() -> None:
