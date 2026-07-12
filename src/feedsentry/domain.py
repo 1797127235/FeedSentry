@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
+
+
+@dataclass(frozen=True)
+class Notification:
+    title: str
+    summary: str
+    source_url: str
+    link: str
 
 
 class DecisionAction(StrEnum):

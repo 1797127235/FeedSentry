@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from feedsentry.config import ConfigManager, load_config, redact_mapping
+from feedsentry.config import ConfigManager, DestinationConfig, load_config, redact_mapping
 
 VALID_CONFIG = """
 integrations:
@@ -42,6 +42,68 @@ def test_load_config_expands_environment_and_parses_interval(tmp_path, monkeypat
     assert str(config.integrations.firecrawl.base_url) == "http://firecrawl:3002/"
     assert config.integrations.firecrawl.api_key is None
     assert config.monitors[0].interval_seconds == 600
+
+
+def test_load_config_supports_native_telegram_destination(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "123")
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        VALID_CONFIG.replace(
+            "  apprise:\n    base_url: http://apprise:8000",
+            "  apprise:\n    base_url: http://apprise:8000\n"
+            "  telegram:\n"
+            "    bot_token: ${TELEGRAM_BOT_TOKEN}\n"
+            "    chat_id: ${TELEGRAM_CHAT_ID}",
+        ).replace("destination: {apprise_key: telegram}", "destination: {kind: telegram}"),
+    )
+
+    config = load_config(config_path)
+
+    assert config.monitors[0].destination.kind == "telegram"
+    assert config.integrations.telegram is not None
+    assert config.integrations.telegram.chat_id == "123"
+
+
+def test_load_config_keeps_apprise_destination_compatible(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path)
+
+    config = load_config(config_path)
+
+    assert config.monitors[0].destination.kind == "apprise"
+    assert config.monitors[0].destination.apprise_key == "telegram"
+
+
+def test_load_config_rejects_telegram_destination_without_integration(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        VALID_CONFIG.replace(
+            "destination: {apprise_key: telegram}", "destination: {kind: telegram}"
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="integrations.telegram"):
+        load_config(config_path)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"kind": "apprise"}, "apprise_key"),
+        ({"kind": "telegram", "apprise_key": "telegram"}, "apprise_key"),
+    ],
+)
+def test_destination_config_rejects_invalid_kind_and_key_combinations(kwargs, match) -> None:
+    with pytest.raises(ValidationError, match=match):
+        DestinationConfig(**kwargs)
 
 
 def test_load_config_rejects_duplicate_monitor_ids(tmp_path, monkeypatch) -> None:

@@ -4,7 +4,7 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -32,9 +32,17 @@ class AppriseConfig(BaseModel):
     base_url: HttpUrl
 
 
+class TelegramConfig(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    bot_token: str
+    chat_id: str
+
+
 class IntegrationsConfig(BaseModel):
     firecrawl: FirecrawlConfig
     apprise: AppriseConfig
+    telegram: TelegramConfig | None = None
 
 
 class AIConfig(BaseModel):
@@ -48,7 +56,16 @@ class StorageConfig(BaseModel):
 
 
 class DestinationConfig(BaseModel):
-    apprise_key: str = Field(pattern=r"^[A-Za-z0-9._-]+$")
+    kind: Literal["apprise", "telegram"] = "apprise"
+    apprise_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]+$")
+
+    @model_validator(mode="after")
+    def validate_kind_fields(self) -> DestinationConfig:
+        if self.kind == "apprise" and self.apprise_key is None:
+            raise ValueError("apprise destinations require apprise_key")
+        if self.kind == "telegram" and self.apprise_key is not None:
+            raise ValueError("telegram destinations must not include apprise_key")
+        return self
 
 
 class MonitorConfig(BaseModel):
@@ -84,6 +101,11 @@ class AppConfig(BaseModel):
         ids = [monitor.id for monitor in self.monitors]
         if len(ids) != len(set(ids)):
             raise ValueError("monitor ids must be unique")
+        if (
+            any(monitor.destination.kind == "telegram" for monitor in self.monitors)
+            and self.integrations.telegram is None
+        ):
+            raise ValueError("telegram destinations require integrations.telegram")
         return self
 
 
