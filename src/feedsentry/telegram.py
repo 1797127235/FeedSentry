@@ -30,7 +30,7 @@ def render_telegram_message(notification: Notification) -> TelegramMessage:
     source_label = escape(source.hostname)
     title = escape(notification.title)
     summary = escape(notification.summary)
-    prefix = f"<i>Source: {source_label}</i>\n\n<b>{title}</b>\n"
+    prefix = f"<i>来源：{source_label}</i>\n\n<b>{title}</b>\n"
 
     if _utf16_units(prefix) > MAX_MESSAGE_UTF16_UNITS:
         raise ValueError("source and title exceed Telegram's message length limit")

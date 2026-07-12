@@ -31,7 +31,7 @@ def test_render_telegram_message_escapes_html_and_adds_read_button() -> None:
     message = render_telegram_message(notification)
 
     assert message.text == (
-        "<i>Source: example.com</i>\n\n"
+        "<i>来源：example.com</i>\n\n"
         "<b>Release &lt;1.0&gt; &amp; &quot;ready&quot;</b>\n"
         "Use &lt;carefully&gt; &amp; keep &quot;quotes&quot;."
     )
@@ -57,7 +57,7 @@ def test_render_telegram_message_truncates_long_summary_by_utf16_units() -> None
 
     message = render_telegram_message(notification)
 
-    assert message.text.startswith("<i>Source: example.com</i>\n\n<b>中文通知</b>\n")
+    assert message.text.startswith("<i>来源：example.com</i>\n\n<b>中文通知</b>\n")
     assert message.text.endswith("…")
     assert len(message.text.encode("utf-16-le")) // 2 <= 4096
 
@@ -78,7 +78,7 @@ def test_render_telegram_message_keeps_complete_escaped_source_and_title_when_tr
 
     message = render_telegram_message(notification)
 
-    assert "<i>Source: source&amp;name.example</i>" in message.text
+    assert "<i>来源：source&amp;name.example</i>" in message.text
     assert "<b>&lt;Title &amp; &quot;quoted&quot;&gt;</b>" in message.text
     assert message.text.endswith("…")
 
