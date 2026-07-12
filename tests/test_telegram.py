@@ -134,10 +134,45 @@ async def test_telegram_notifier_hides_token_for_http_errors() -> None:
 
 
 @respx.mock
+async def test_telegram_notifier_hides_token_for_rate_limit_errors() -> None:
+    respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
+        return_value=httpx.Response(429)
+    )
+
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(ValueError, match="Telegram API request failed") as error:
+            await TelegramNotifier(http, "secret-token", "-100123").notify(make_notification())
+
+    assert "secret-token" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert not hasattr(error.value, "request")
+    assert not hasattr(error.value, "response")
+
+
+@respx.mock
 async def test_telegram_notifier_hides_token_for_transport_errors() -> None:
     request = httpx.Request("POST", "https://api.telegram.org/botsecret-token/sendMessage")
     respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
         side_effect=httpx.ConnectError("connection failed", request=request)
+    )
+
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(ValueError, match="Telegram API request failed") as error:
+            await TelegramNotifier(http, "secret-token", "-100123").notify(make_notification())
+
+    assert "secret-token" not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert not hasattr(error.value, "request")
+    assert not hasattr(error.value, "response")
+
+
+@respx.mock
+async def test_telegram_notifier_hides_token_for_timeout_errors() -> None:
+    request = httpx.Request("POST", "https://api.telegram.org/botsecret-token/sendMessage")
+    respx.post("https://api.telegram.org/botsecret-token/sendMessage").mock(
+        side_effect=httpx.ReadTimeout("request timed out", request=request)
     )
 
     async with httpx.AsyncClient() as http:
