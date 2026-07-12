@@ -22,6 +22,7 @@ from feedsentry.logging import configure_logging
 from feedsentry.processor import EventProcessor
 from feedsentry.repository import Repository
 from feedsentry.scheduler import Scheduler
+from feedsentry.telegram import TelegramNotifier
 
 
 @dataclass(frozen=True)
@@ -53,15 +54,22 @@ def create_app(config_path: Path) -> FastAPI:
             http, str(config.integrations.firecrawl.base_url), config.integrations.firecrawl.api_key
         )
         apprise_client = AppriseClient(http, str(config.integrations.apprise.base_url))
+        telegram_client = (
+            TelegramNotifier(
+                http, config.integrations.telegram.bot_token, config.integrations.telegram.chat_id
+            )
+            if config.integrations.telegram is not None
+            else None
+        )
         ingestion = IngestionService(repository, feed_client)
 
-        def destination_for_monitor(monitor_id: str) -> str:
+        def destination_for_monitor(monitor_id: str):
             current = config_manager.current
             if current is None:
                 raise RuntimeError("configuration is not loaded")
             for monitor in current.monitors:
                 if monitor.id == monitor_id:
-                    return monitor.destination.apprise_key
+                    return monitor.destination
             raise LookupError(f"monitor not found: {monitor_id}")
 
         processor = EventProcessor(
@@ -70,6 +78,7 @@ def create_app(config_path: Path) -> FastAPI:
             firecrawl_client,
             apprise_client,
             destination_for_monitor,
+            telegram_client,
         )
         scheduler = Scheduler(config_manager, repository, ingestion, processor)
         app.state.services = AppServices(
