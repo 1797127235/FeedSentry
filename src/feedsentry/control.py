@@ -64,6 +64,17 @@ class SystemStatus:
     source_statuses: tuple[SourceView, ...]
 
 
+@dataclass(frozen=True)
+class FailedEventView:
+    event_id: int
+    entry_id: int
+    title: str
+    failed_stage: str
+    failure_count: int
+    last_error: str | None
+    updated_at: datetime
+
+
 class SourceService:
     def __init__(
         self,
@@ -285,3 +296,26 @@ class StatusService:
             config_error=self.manager.last_error,
             source_statuses=tuple(views),
         )
+
+
+class RecoveryService:
+    def __init__(self, repository: Repository) -> None:
+        self.repository = repository
+
+    async def list_failed_events(self) -> list[FailedEventView]:
+        records = await self.repository.list_failed_events()
+        return [
+            FailedEventView(
+                event_id=record.event_id,
+                entry_id=record.entry_id,
+                title=record.title,
+                failed_stage=record.failed_stage.value,
+                failure_count=record.failure_count,
+                last_error=record.last_error,
+                updated_at=record.updated_at,
+            )
+            for record in records
+        ]
+
+    async def retry_failed_event(self, event_id: int) -> bool:
+        return await self.repository.retry_failed_event(event_id)

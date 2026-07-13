@@ -7,7 +7,8 @@ from test_config import VALID_CONFIG
 
 from feedsentry.config import ConfigManager
 from feedsentry.config_store import ConfigStore
-from feedsentry.control import FilterService, SourceService, StatusService
+from feedsentry.control import FilterService, RecoveryService, SourceService, StatusService
+from feedsentry.domain import EventStatus
 from feedsentry.feed_validation import ValidatedFeed
 from feedsentry.feeds import NormalizedEntry
 from feedsentry.rsshub import CandidateCodec
@@ -147,3 +148,31 @@ async def test_status_service_returns_source_health(config_manager, repository) 
     assert status.enabled_sources == 1
     assert status.source_statuses[0].consecutive_failures == 1
     assert status.source_statuses[0].last_error == "timeout"
+
+
+async def test_recovery_service_lists_and_retries_failed_events(repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="failed-control",
+        title="Failed",
+        summary="Summary",
+        link="https://example.com/failed-control",
+        author=None,
+        published_at=None,
+        content_hash="failed-control-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    for _ in range(5):
+        await repository.schedule_event_retry(event_id, EventStatus.SCREENING, "AI unavailable")
+        event = await repository.get_event(event_id)
+        if event.status is EventStatus.RETRY_WAIT:
+            await repository.make_event_due(event_id)
+            await repository.resume_event(event_id)
+
+    service = RecoveryService(repository)
+    failed = await service.list_failed_events()
+    assert failed[0].event_id == event_id
+    assert failed[0].failed_stage == "screening"
+    assert await service.retry_failed_event(event_id) is True
