@@ -5,10 +5,16 @@ from datetime import UTC, datetime
 import pytest
 from test_config import VALID_CONFIG
 
-from feedsentry.config import ConfigManager
+from feedsentry.config import ConfigManager, DestinationConfig
 from feedsentry.config_store import ConfigStore
-from feedsentry.control import FilterService, RecoveryService, SourceService, StatusService
-from feedsentry.domain import EventStatus
+from feedsentry.control import (
+    DestinationService,
+    FilterService,
+    RecoveryService,
+    SourceService,
+    StatusService,
+)
+from feedsentry.domain import EventStatus, Notification
 from feedsentry.feed_validation import ValidatedFeed
 from feedsentry.feeds import NormalizedEntry
 from feedsentry.rsshub import CandidateCodec
@@ -176,3 +182,48 @@ async def test_recovery_service_lists_and_retries_failed_events(repository) -> N
     assert failed[0].event_id == event_id
     assert failed[0].failed_stage == "screening"
     assert await service.retry_failed_event(event_id) is True
+
+
+class FakeApprise:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def notify(self, key: str, title: str, body: str) -> str:
+        self.calls.append((key, title, body))
+        return "sent"
+
+
+class FakeTelegram:
+    def __init__(self) -> None:
+        self.calls: list[Notification] = []
+
+    async def notify(self, notification: Notification) -> str:
+        self.calls.append(notification)
+        return "telegram_message_id=1"
+
+
+async def test_destination_service_sends_marked_apprise_test(config_manager) -> None:
+    apprise = FakeApprise()
+    service = DestinationService(config_manager, apprise, None)
+
+    result = await service.test()
+
+    assert result == "sent"
+    key, title, body = apprise.calls[0]
+    assert key == "telegram"
+    assert "FeedSentry TEST" in title
+    assert "FeedSentry TEST" in body
+
+
+async def test_destination_service_sends_marked_telegram_test(config_manager) -> None:
+    telegram = FakeTelegram()
+    config_manager.current = config_manager.current.model_copy(
+        update={"destination": DestinationConfig(kind="telegram")}
+    )
+    service = DestinationService(config_manager, FakeApprise(), telegram)
+
+    result = await service.test()
+
+    assert result == "telegram_message_id=1"
+    assert "FeedSentry TEST" in telegram.calls[0].title
+    assert "FeedSentry TEST" in telegram.calls[0].summary

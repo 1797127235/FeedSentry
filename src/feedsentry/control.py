@@ -14,6 +14,7 @@ from feedsentry.config import (
     SourceConfig,
 )
 from feedsentry.config_store import ConfigStore
+from feedsentry.domain import Notification
 from feedsentry.feed_validation import FeedValidator, ValidatedFeed
 from feedsentry.repository import Repository
 from feedsentry.rsshub import CandidateCodec, RadarMatcher, RSSHubClient
@@ -21,6 +22,14 @@ from feedsentry.rsshub import CandidateCodec, RadarMatcher, RSSHubClient
 
 class Polling(Protocol):
     async def poll(self, source, goal, *, rsshub, force=False) -> int: ...
+
+
+class Apprise(Protocol):
+    async def notify(self, key: str, title: str, body: str) -> str: ...
+
+
+class Telegram(Protocol):
+    async def notify(self, notification: Notification) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -319,3 +328,36 @@ class RecoveryService:
 
     async def retry_failed_event(self, event_id: int) -> bool:
         return await self.repository.retry_failed_event(event_id)
+
+
+class DestinationService:
+    def __init__(
+        self,
+        manager: ConfigManager,
+        apprise: Apprise,
+        telegram: Telegram | None,
+    ) -> None:
+        self.manager = manager
+        self.apprise = apprise
+        self.telegram = telegram
+
+    async def test(self) -> str:
+        if self.manager.current is None:
+            raise RuntimeError("configuration is not loaded")
+        destination = self.manager.current.destination
+        title = "FeedSentry TEST notification"
+        body = "FeedSentry TEST: notification delivery is working."
+        if destination.kind == "telegram":
+            if self.telegram is None:
+                raise RuntimeError("telegram destination is not configured")
+            return await self.telegram.notify(
+                Notification(
+                    title=title,
+                    summary=body,
+                    source_url="https://feedsentry.invalid/test",
+                    link="https://feedsentry.invalid/test",
+                )
+            )
+        if destination.apprise_key is None:
+            raise RuntimeError("apprise destination is not configured")
+        return await self.apprise.notify(destination.apprise_key, title, body)
