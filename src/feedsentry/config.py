@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
@@ -32,6 +34,7 @@ class TelegramConfig(BaseModel):
 class IntegrationsConfig(BaseModel):
     firecrawl: FirecrawlConfig
     apprise: AppriseConfig
+    rsshub: RSSHubConfig | None = None
     telegram: TelegramConfig | None = None
 
 
@@ -62,9 +65,43 @@ class FilterConfig(BaseModel):
     goal: str = Field(min_length=1)
 
 
-class SourceConfig(BaseModel):
-    url: HttpUrl
+class RSSHubConfig(BaseModel):
+    base_url: HttpUrl
+
+
+class SourceBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     enabled: bool = True
+
+
+class DirectSourceConfig(SourceBase):
+    kind: Literal["feed"]
+    url: HttpUrl
+
+    def feed_url(self, rsshub: RSSHubConfig | None) -> str:
+        del rsshub
+        return str(self.url)
+
+
+class RSSHubSourceConfig(SourceBase):
+    kind: Literal["rsshub"]
+    page_url: HttpUrl
+    route: str = Field(pattern=r"^/[^?#]*$")
+
+    def feed_url(self, rsshub: RSSHubConfig | None) -> str:
+        if rsshub is None:
+            raise ValueError("RSSHub source requires integrations.rsshub")
+        base = urlsplit(str(rsshub.base_url))
+        path = posixpath.join(base.path.rstrip("/"), self.route.lstrip("/"))
+        return urlunsplit((base.scheme, base.netloc, f"/{path.lstrip('/')}", "", ""))
+
+
+SourceConfig = Annotated[
+    DirectSourceConfig | RSSHubSourceConfig,
+    Field(discriminator="kind"),
+]
 
 
 class AppConfig(BaseModel):
@@ -79,7 +116,13 @@ class AppConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_pipeline(self) -> AppConfig:
-        urls = [str(source.url) for source in self.sources]
+        ids = [source.id for source in self.sources]
+        if len(ids) != len(set(ids)):
+            raise ValueError("source IDs must be unique")
+        if any(source.kind == "rsshub" for source in self.sources):
+            if self.integrations.rsshub is None:
+                raise ValueError("RSSHub sources require integrations.rsshub")
+        urls = [source.feed_url(self.integrations.rsshub) for source in self.sources]
         if len(urls) != len(set(urls)):
             raise ValueError("source URLs must be unique")
         if self.destination.kind == "telegram" and self.integrations.telegram is None:
