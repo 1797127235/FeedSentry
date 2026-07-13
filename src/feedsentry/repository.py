@@ -147,6 +147,23 @@ class Repository:
             last_error=row.last_error,
         )
 
+    async def list_feed_states(self) -> list[FeedStateRecord]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(select(FeedStateRow).order_by(FeedStateRow.source_url))
+            return [
+                FeedStateRecord(
+                    source_url=row.source_url,
+                    etag=row.etag,
+                    last_modified=row.last_modified,
+                    initialized_at=row.initialized_at,
+                    last_success_at=row.last_success_at,
+                    consecutive_failures=row.consecutive_failures,
+                    next_check_at=row.next_check_at,
+                    last_error=row.last_error,
+                )
+                for row in rows
+            ]
+
     async def record_feed_success(
         self,
         source_url: str,
