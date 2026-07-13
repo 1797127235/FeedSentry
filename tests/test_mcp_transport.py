@@ -72,3 +72,20 @@ async def test_mcp_rejects_missing_and_wrong_bearer_tokens() -> None:
             wrong = await http.post("/mcp", json={}, headers={"Authorization": "Bearer wrong"})
     assert missing.status_code == 401
     assert wrong.status_code == 401
+
+
+async def test_mcp_rejects_oversized_request() -> None:
+    app = create_mcp_app(
+        ControlServices(sources=FakeSources(), status=FakeStatus()),
+        token="secret",
+        allowed_hosts=["localhost"],
+        max_request_bytes=10,
+    )
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer secret"},
+        ) as http:
+            response = await http.post("/mcp", content=b"x" * 11)
+    assert response.status_code == 413

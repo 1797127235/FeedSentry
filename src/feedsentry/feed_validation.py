@@ -4,7 +4,7 @@ import asyncio
 import ipaddress
 import socket
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import feedparser
 import httpx
@@ -39,19 +39,29 @@ class FeedValidator:
         self.allowed_private_hosts = {host.lower() for host in (allowed_private_hosts or set())}
 
     async def validate(self, url: str) -> ValidatedFeed:
-        await self._check_url(url)
+        current_url = url
         try:
-            async with self.http.stream("GET", url, follow_redirects=True) as response:
-                response.raise_for_status()
-                canonical_url = str(response.url)
-                await self._check_url(canonical_url)
-                content = bytearray()
-                async for chunk in response.aiter_bytes():
-                    content.extend(chunk)
-                    if len(content) > self.max_bytes:
-                        raise FeedValidationError("feed response is too large")
-                etag = response.headers.get("etag")
-                last_modified = response.headers.get("last-modified")
+            for redirect_count in range(6):
+                await self._check_url(current_url)
+                async with self.http.stream("GET", current_url, follow_redirects=False) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if location is None or redirect_count == 5:
+                            raise FeedValidationError("feed redirected too many times")
+                        current_url = urljoin(str(response.url), location)
+                        continue
+                    response.raise_for_status()
+                    canonical_url = str(response.url)
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > self.max_bytes:
+                            raise FeedValidationError("feed response is too large")
+                    etag = response.headers.get("etag")
+                    last_modified = response.headers.get("last-modified")
+                    break
+            else:  # pragma: no cover
+                raise FeedValidationError("feed redirected too many times")
         except FeedValidationError:
             raise
         except httpx.HTTPError as exc:

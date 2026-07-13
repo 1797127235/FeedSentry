@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
@@ -36,11 +37,38 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class RequestLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(
+        self,
+        app,
+        *,
+        max_request_bytes: int,
+        max_concurrent_requests: int,
+    ) -> None:
+        super().__init__(app)
+        self.max_request_bytes = max_request_bytes
+        self.semaphore = asyncio.Semaphore(max_concurrent_requests)
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                too_large = int(content_length) > self.max_request_bytes
+            except ValueError:
+                return JSONResponse({"detail": "invalid content length"}, status_code=400)
+            if too_large:
+                return JSONResponse({"detail": "request too large"}, status_code=413)
+        async with self.semaphore:
+            return await call_next(request)
+
+
 def create_mcp_app(
     services: ControlServices,
     *,
     token: str,
     allowed_hosts: list[str] | None = None,
+    max_request_bytes: int = 1_000_000,
+    max_concurrent_requests: int = 10,
 ) -> Starlette:
     server = FastMCP(
         "FeedSentry",
@@ -127,6 +155,14 @@ def create_mcp_app(
 
     app = server.streamable_http_app()
     app.user_middleware.insert(0, Middleware(BearerTokenMiddleware, token=token))
+    app.user_middleware.insert(
+        1,
+        Middleware(
+            RequestLimitMiddleware,
+            max_request_bytes=max_request_bytes,
+            max_concurrent_requests=max_concurrent_requests,
+        ),
+    )
     app.middleware_stack = app.build_middleware_stack()
     return app
 

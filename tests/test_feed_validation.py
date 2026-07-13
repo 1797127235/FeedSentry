@@ -68,6 +68,22 @@ async def test_validator_rejects_loopback_url_without_request() -> None:
 
 
 @respx.mock
+async def test_validator_rejects_redirect_to_loopback_before_following() -> None:
+    first = respx.get("https://example.com/redirect").mock(
+        return_value=httpx.Response(302, headers={"location": "http://127.0.0.1/feed"})
+    )
+    private = respx.get("http://127.0.0.1/feed").mock(
+        return_value=httpx.Response(200, content=ATOM_EMPTY)
+    )
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(FeedValidationError, match="not allowed"):
+            await FeedValidator(http).validate("https://example.com/redirect")
+
+    assert first.called
+    assert not private.called
+
+
+@respx.mock
 async def test_validator_allows_configured_rsshub_host() -> None:
     respx.get("http://rsshub.internal:1200/route").mock(
         return_value=httpx.Response(200, content=ATOM_EMPTY)

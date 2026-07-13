@@ -189,9 +189,9 @@ class SourceService:
         created = await self.store.add_source(source)
         baseline_initialized = False
         if created:
-            now = datetime.now(UTC)
             for entry in validated.entries:
                 await self.repository.upsert_entry(**entry.as_repository_kwargs())
+            now = datetime.now(UTC)
             await self.repository.mark_feed_initialized(validated.canonical_url, now)
             await self.repository.record_feed_success(
                 validated.canonical_url,
