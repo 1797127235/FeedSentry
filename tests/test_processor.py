@@ -104,6 +104,40 @@ async def test_apprise_failure_retries_delivery_without_repeating_ai(
     assert fixture.apprise.calls == 2
 
 
+async def test_recovery_does_not_repeat_a_recorded_successful_delivery(
+    processor_fixture: ProcessorFixture,
+) -> None:
+    fixture = processor_fixture
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id, EventStatus.DISCOVERED, EventStatus.SCREENING
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id,
+        EventStatus.SCREENING,
+        EventStatus.DELIVERY_PENDING,
+        decision_reason="major release",
+        output_title="Release V2",
+        output_summary="Adds durable workflows",
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id, EventStatus.DELIVERY_PENDING, EventStatus.DELIVERING
+    )
+    delivery = await fixture.repository.create_delivery(fixture.event_id, "telegram")
+    await fixture.repository.mark_delivery_success(delivery.id, "sent")
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    event = await fixture.repository.get_event(fixture.event_id)
+    assert event.status is EventStatus.DELIVERED
+    assert fixture.apprise.calls == 0
+
+
 async def test_delivery_uses_global_destination(processor_fixture: ProcessorFixture) -> None:
     fixture = processor_fixture
     fixture.processor = EventProcessor(

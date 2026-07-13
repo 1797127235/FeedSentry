@@ -186,34 +186,28 @@ class SourceService:
                     validated.canonical_url
                 ),
             )
+        for entry in validated.entries:
+            await self.repository.upsert_entry(**entry.as_repository_kwargs())
+        now = datetime.now(UTC)
+        await self.repository.mark_feed_initialized(validated.canonical_url, now)
+        await self.repository.record_feed_success(
+            validated.canonical_url,
+            etag=validated.etag,
+            last_modified=validated.last_modified,
+            checked_at=now,
+            next_check_at=now,
+        )
         created = await self.store.add_source(source)
-        baseline_initialized = False
-        if created:
-            for entry in validated.entries:
-                await self.repository.upsert_entry(**entry.as_repository_kwargs())
-            now = datetime.now(UTC)
-            await self.repository.mark_feed_initialized(validated.canonical_url, now)
-            await self.repository.record_feed_success(
-                validated.canonical_url,
-                etag=validated.etag,
-                last_modified=validated.last_modified,
-                checked_at=now,
-                next_check_at=now,
-            )
-            baseline_initialized = True
         return AddSourceResult(
             self._view(source, title=validated.title),
             created=created,
-            baseline_initialized=baseline_initialized,
+            baseline_initialized=created,
         )
 
     def _source_id(self, title: str, url: str) -> str:
         stem = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or (
             urlsplit(url).hostname or "source"
         ).replace(".", "-")
-        existing = {source.id for source in self._current().sources}
-        if stem not in existing:
-            return stem[:64]
         suffix = hashlib.sha256(url.encode()).hexdigest()[:8]
         return f"{stem[:55]}-{suffix}"
 

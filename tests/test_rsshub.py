@@ -50,6 +50,68 @@ def test_radar_matcher_returns_empty_for_unknown_page() -> None:
     )
 
 
+def test_radar_matcher_uses_dot_section_for_bare_domain() -> None:
+    rules = {
+        "v2ex.com": {
+            ".": [
+                {
+                    "title": "Post",
+                    "source": ["/t/:postid"],
+                    "target": "/v2ex/post/:postid",
+                }
+            ]
+        }
+    }
+
+    candidates = RadarMatcher().discover(
+        "https://v2ex.com/t/123", rules, "https://rsshub.antest.cc.cd"
+    )
+
+    assert candidates[0].route == "/v2ex/post/123"
+
+
+def test_radar_matcher_supports_named_wildcard_source_parameters() -> None:
+    rules = {
+        "github.com": {
+            ".": [
+                {
+                    "title": "File commits",
+                    "source": ["/:user/:repo/blob/:branch/*filepath"],
+                    "target": "/github/file/:user/:repo/:branch/:filepath",
+                }
+            ]
+        }
+    }
+
+    candidates = RadarMatcher().discover(
+        "https://github.com/org/repo/blob/main/docs/readme.md",
+        rules,
+        "https://rsshub.antest.cc.cd",
+    )
+
+    assert candidates[0].route == "/github/file/org/repo/main/docs%2Freadme.md"
+
+
+def test_radar_matcher_removes_unfilled_optional_target_segments() -> None:
+    rules = {
+        "github.com": {
+            ".": [
+                {
+                    "title": "User repositories",
+                    "source": ["/:user"],
+                    "target": "/github/repos/:user/:type?/:sort?",
+                }
+            ]
+        }
+    }
+
+    candidates = RadarMatcher().discover(
+        "https://github.com/octocat", rules, "https://rsshub.antest.cc.cd"
+    )
+
+    assert candidates[0].route == "/github/repos/octocat"
+
+
 def test_candidate_codec_round_trips_and_rejects_tampering() -> None:
     now = datetime(2026, 7, 13, tzinfo=UTC)
     candidate = RadarMatcher().discover(

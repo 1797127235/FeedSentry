@@ -58,6 +58,12 @@ class RequestLimitMiddleware(BaseHTTPMiddleware):
                 return JSONResponse({"detail": "invalid content length"}, status_code=400)
             if too_large:
                 return JSONResponse({"detail": "request too large"}, status_code=413)
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > self.max_request_bytes:
+                return JSONResponse({"detail": "request too large"}, status_code=413)
+        request._body = bytes(content)
         async with self.semaphore:
             return await call_next(request)
 

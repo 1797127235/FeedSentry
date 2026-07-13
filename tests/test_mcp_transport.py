@@ -89,3 +89,25 @@ async def test_mcp_rejects_oversized_request() -> None:
         ) as http:
             response = await http.post("/mcp", content=b"x" * 11)
     assert response.status_code == 413
+
+
+async def test_mcp_rejects_oversized_streamed_request_without_content_length() -> None:
+    app = create_mcp_app(
+        ControlServices(sources=FakeSources(), status=FakeStatus()),
+        token="secret",
+        allowed_hosts=["localhost"],
+        max_request_bytes=10,
+    )
+
+    async def chunks():
+        yield b"x" * 6
+        yield b"y" * 6
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer secret"},
+        ) as http:
+            response = await http.post("/mcp", content=chunks())
+    assert response.status_code == 413

@@ -59,6 +59,8 @@ class RadarMatcher:
                 if parameters is None:
                     continue
                 route = self._substitute(target, parameters)
+                if route is None:
+                    continue
                 if route in seen:
                     break
                 seen.add(route)
@@ -83,7 +85,7 @@ class RadarMatcher:
     @staticmethod
     def _section(hostname: str, domain: str) -> str:
         if hostname == domain:
-            return "www"
+            return "."
         return hostname.removesuffix(f".{domain}").split(".")[-1]
 
     @staticmethod
@@ -94,8 +96,8 @@ class RadarMatcher:
             if segment.startswith(":"):
                 names.append(segment[1:])
                 parts.append(r"([^/]+)")
-            elif segment == "*":
-                names.append("wildcard")
+            elif segment.startswith("*"):
+                names.append(segment[1:] or "wildcard")
                 parts.append(r"(.+)")
             else:
                 parts.append(re.escape(segment))
@@ -106,10 +108,18 @@ class RadarMatcher:
         return dict(zip(names, match.groups(), strict=True))
 
     @staticmethod
-    def _substitute(target: str, parameters: Mapping[str, str]) -> str:
+    def _substitute(target: str, parameters: Mapping[str, str]) -> str | None:
         route = target
         for name, value in parameters.items():
-            route = route.replace(f":{name}", quote(value, safe=""))
+            replacement = quote(value, safe="")
+            route = re.sub(
+                rf":{re.escape(name)}\??",
+                lambda _, replacement=replacement: replacement,
+                route,
+            )
+        route = re.sub(r"/:[A-Za-z0-9_]+\?", "", route)
+        if re.search(r":[A-Za-z0-9_]+", route):
+            return None
         return route
 
     @staticmethod

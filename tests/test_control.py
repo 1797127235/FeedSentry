@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -44,6 +45,42 @@ class FakeValidator:
             last_modified=None,
             entries=(normalized_entry(url),),
         )
+
+
+class LongTitleValidator(FakeValidator):
+    async def validate(self, url: str) -> ValidatedFeed:
+        validated = await super().validate(url)
+        return ValidatedFeed(
+            canonical_url=validated.canonical_url,
+            title="A" * 80,
+            version=validated.version,
+            etag=validated.etag,
+            last_modified=validated.last_modified,
+            entries=validated.entries,
+        )
+
+
+class ConcurrentValidator(FakeValidator):
+    def __init__(self) -> None:
+        self.arrived = 0
+        self.ready = asyncio.Event()
+
+    async def validate(self, url: str) -> ValidatedFeed:
+        self.arrived += 1
+        if self.arrived == 2:
+            self.ready.set()
+        await self.ready.wait()
+        return await super().validate(url)
+
+
+class BaselineCheckingStore(ConfigStore):
+    def __init__(self, manager, repository) -> None:
+        super().__init__(manager)
+        self.repository = repository
+
+    async def add_source(self, source) -> bool:
+        assert await self.repository.feed_is_initialized(str(source.url))
+        return await super().add_source(source)
 
 
 class FakeRSSHub:
@@ -108,11 +145,71 @@ async def test_add_direct_feed_builds_silent_baseline(source_service, repository
     assert state is not None and state.initialized_at is not None
 
 
+async def test_add_direct_feed_builds_baseline_before_publishing_source(
+    config_manager, repository
+) -> None:
+    service = SourceService(
+        config_manager,
+        BaselineCheckingStore(config_manager, repository),
+        repository,
+        FakeValidator(),
+        FakeRSSHub(),
+        CandidateCodec(b"secret"),
+        FakePolling(),
+    )
+
+    result = await service.add_feed("https://news.example/feed.xml")
+
+    assert result.created is True
+
+
 async def test_add_direct_feed_is_idempotent(source_service) -> None:
     first = await source_service.add_feed("https://news.example/feed.xml")
     second = await source_service.add_feed("https://news.example/feed.xml")
     assert first.source.id == second.source.id
     assert second.created is False
+
+
+async def test_different_feeds_with_same_long_title_get_unique_ids(
+    config_manager, repository
+) -> None:
+    service = SourceService(
+        config_manager,
+        ConfigStore(config_manager),
+        repository,
+        LongTitleValidator(),
+        FakeRSSHub(),
+        CandidateCodec(b"secret"),
+        FakePolling(),
+    )
+
+    first = await service.add_feed("https://one.example/feed.xml")
+    second = await service.add_feed("https://two.example/feed.xml")
+
+    assert first.created is True
+    assert second.created is True
+    assert first.source.id != second.source.id
+
+
+async def test_concurrent_feeds_with_same_title_get_unique_ids(config_manager, repository) -> None:
+    service = SourceService(
+        config_manager,
+        ConfigStore(config_manager),
+        repository,
+        ConcurrentValidator(),
+        FakeRSSHub(),
+        CandidateCodec(b"secret"),
+        FakePolling(),
+    )
+
+    first, second = await asyncio.gather(
+        service.add_feed("https://one.example/feed.xml"),
+        service.add_feed("https://two.example/feed.xml"),
+    )
+
+    assert first.created is True
+    assert second.created is True
+    assert first.source.id != second.source.id
 
 
 async def test_discover_and_subscribe_rsshub_candidate(source_service) -> None:

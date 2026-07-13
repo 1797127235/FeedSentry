@@ -165,6 +165,11 @@ class EventProcessor:
             delivery = await self.repository.create_delivery(
                 bundle.event.id, f"telegram:{self.telegram.chat_id}"
             )
+            if delivery.status == "delivered":
+                await self.repository.transition_event(
+                    bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
+                )
+                return
             response = await self.telegram.notify(
                 Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
             )
@@ -179,6 +184,11 @@ class EventProcessor:
         if apprise_key is None:
             raise RuntimeError("apprise destination is not configured")
         delivery = await self.repository.create_delivery(bundle.event.id, apprise_key)
+        if delivery.status == "delivered":
+            await self.repository.transition_event(
+                bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
+            )
+            return
         reason = bundle.event.decision_reason or "Relevant to the monitoring goal"
         body = f"{summary}\n\nReason: {reason}\n\n{bundle.entry.link}"
         response = await self.apprise.notify(apprise_key, title, body)
