@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from feedsentry.config import DirectSourceConfig
 from feedsentry.scheduler import Scheduler
 
 
@@ -31,12 +32,14 @@ class FakeRepository:
         return [42]
 
 
-class FakeIngestion:
+class FakePolling:
     def __init__(self) -> None:
         self.polled: list[tuple[str, str]] = []
 
-    async def poll_source(self, source_url: str, goal: str) -> int:
-        self.polled.append((source_url, goal))
+    async def poll(self, source, goal: str, *, rsshub) -> int:
+        del rsshub
+        if source.enabled:
+            self.polled.append((source.feed_url(None), goal))
         return 0
 
 
@@ -50,26 +53,42 @@ class FakeProcessor:
 
 async def test_tick_polls_enabled_sources_with_global_goal_and_processes_events() -> None:
     sources = [
-        type("Source", (), {"url": "https://example.com/feed", "enabled": True})(),
-        type("Source", (), {"url": "https://example.com/off", "enabled": False})(),
+        DirectSourceConfig(id="feed", kind="feed", url="https://example.com/feed"),
+        DirectSourceConfig(id="off", kind="feed", url="https://example.com/off", enabled=False),
     ]
-    current = type("Config", (), {"sources": sources, "filter": type("F", (), {"goal": "AI"})()})()
+    current = type(
+        "Config",
+        (),
+        {
+            "sources": sources,
+            "filter": type("F", (), {"goal": "AI"})(),
+            "integrations": type("I", (), {"rsshub": None})(),
+        },
+    )()
     config = FakeConfig(current=current)
     repository = FakeRepository()
-    ingestion = FakeIngestion()
+    polling = FakePolling()
     processor = FakeProcessor()
-    scheduler = Scheduler(config, repository, ingestion, processor, clock=lambda: datetime.now(UTC))
+    scheduler = Scheduler(config, repository, polling, processor, clock=lambda: datetime.now(UTC))
 
     await scheduler.tick()
 
     assert config.reload_calls == 1
-    assert ingestion.polled == [("https://example.com/feed", "AI")]
+    assert polling.polled == [("https://example.com/feed", "AI")]
     assert processor.processed == [42]
 
 
 async def test_run_stops_cleanly() -> None:
-    current = type("Config", (), {"sources": [], "filter": type("F", (), {"goal": "AI"})()})()
-    scheduler = Scheduler(FakeConfig(current), FakeRepository(), FakeIngestion(), FakeProcessor())
+    current = type(
+        "Config",
+        (),
+        {
+            "sources": [],
+            "filter": type("F", (), {"goal": "AI"})(),
+            "integrations": type("I", (), {"rsshub": None})(),
+        },
+    )()
+    scheduler = Scheduler(FakeConfig(current), FakeRepository(), FakePolling(), FakeProcessor())
     task = asyncio.create_task(scheduler.run())
     await asyncio.sleep(0)
     await scheduler.stop()

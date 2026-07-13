@@ -19,6 +19,7 @@ from feedsentry.feeds import FeedClient
 from feedsentry.firecrawl import FirecrawlClient
 from feedsentry.ingestion import IngestionService
 from feedsentry.logging import configure_logging
+from feedsentry.polling import PollCoordinator
 from feedsentry.processor import EventProcessor
 from feedsentry.repository import Repository
 from feedsentry.scheduler import Scheduler
@@ -30,6 +31,7 @@ class AppServices:
     config_manager: ConfigManager
     repository: Repository
     ingestion: IngestionService
+    polling: PollCoordinator
     processor: EventProcessor
     scheduler: Scheduler
     http: httpx.AsyncClient
@@ -62,6 +64,7 @@ def create_app(config_path: Path) -> FastAPI:
             else None
         )
         ingestion = IngestionService(repository, feed_client)
+        polling = PollCoordinator(repository, ingestion)
 
         def current_destination():
             current = config_manager.current
@@ -77,9 +80,16 @@ def create_app(config_path: Path) -> FastAPI:
             current_destination,
             telegram_client,
         )
-        scheduler = Scheduler(config_manager, repository, ingestion, processor)
+        scheduler = Scheduler(config_manager, repository, polling, processor)
         app.state.services = AppServices(
-            config_manager, repository, ingestion, processor, scheduler, http, database
+            config_manager,
+            repository,
+            ingestion,
+            polling,
+            processor,
+            scheduler,
+            http,
+            database,
         )
         task = asyncio.create_task(scheduler.run())
         try:
