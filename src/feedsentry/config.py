@@ -111,7 +111,7 @@ class AppConfig(BaseModel):
     ai: AIConfig
     storage: StorageConfig
     filter: FilterConfig
-    sources: list[SourceConfig] = Field(min_length=1)
+    sources: list[SourceConfig]
     destination: DestinationConfig
 
     @model_validator(mode="after")
