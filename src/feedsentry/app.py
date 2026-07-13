@@ -14,14 +14,25 @@ from feedsentry.ai import AIClient
 from feedsentry.api import router
 from feedsentry.apprise import AppriseClient
 from feedsentry.config import ConfigManager
+from feedsentry.config_store import ConfigStore
+from feedsentry.control import (
+    DestinationService,
+    FilterService,
+    RecoveryService,
+    SourceService,
+    StatusService,
+)
 from feedsentry.database import Database, create_database
+from feedsentry.feed_validation import FeedValidator
 from feedsentry.feeds import FeedClient
 from feedsentry.firecrawl import FirecrawlClient
 from feedsentry.ingestion import IngestionService
 from feedsentry.logging import configure_logging
+from feedsentry.mcp import ControlServices, create_mcp_app
 from feedsentry.polling import PollCoordinator
 from feedsentry.processor import EventProcessor
 from feedsentry.repository import Repository
+from feedsentry.rsshub import CandidateCodec, RSSHubClient
 from feedsentry.scheduler import Scheduler
 from feedsentry.telegram import TelegramNotifier
 
@@ -40,6 +51,21 @@ class AppServices:
 
 def create_app(config_path: Path) -> FastAPI:
     configure_logging()
+    mcp_token = os.environ.get("FEEDSENTRY_MCP_TOKEN")
+    control_services = ControlServices()
+    allowed_hosts = [
+        item.strip()
+        for item in os.environ.get(
+            "FEEDSENTRY_MCP_ALLOWED_HOSTS",
+            "localhost,localhost:*,127.0.0.1,127.0.0.1:*",
+        ).split(",")
+        if item.strip()
+    ]
+    mcp_app = (
+        create_mcp_app(control_services, token=mcp_token, allowed_hosts=allowed_hosts)
+        if mcp_token
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -65,6 +91,20 @@ def create_app(config_path: Path) -> FastAPI:
         )
         ingestion = IngestionService(repository, feed_client)
         polling = PollCoordinator(repository, ingestion)
+        config_store = ConfigStore(config_manager)
+        rsshub_base_url = (
+            str(config.integrations.rsshub.base_url)
+            if config.integrations.rsshub is not None
+            else "http://rsshub.invalid"
+        )
+        rsshub_client = RSSHubClient(http, rsshub_base_url)
+        allowed_private_hosts = (
+            {config.integrations.rsshub.base_url.host}
+            if config.integrations.rsshub is not None
+            and config.integrations.rsshub.base_url.host is not None
+            else set()
+        )
+        feed_validator = FeedValidator(http, allowed_private_hosts=allowed_private_hosts)
 
         def current_destination():
             current = config_manager.current
@@ -81,6 +121,21 @@ def create_app(config_path: Path) -> FastAPI:
             telegram_client,
         )
         scheduler = Scheduler(config_manager, repository, polling, processor)
+        control_services.sources = SourceService(
+            config_manager,
+            config_store,
+            repository,
+            feed_validator,
+            rsshub_client,
+            CandidateCodec(mcp_token.encode() if mcp_token else b"disabled"),
+            polling,
+        )
+        control_services.filter = FilterService(config_manager, config_store)
+        control_services.status = StatusService(config_manager, repository)
+        control_services.recovery = RecoveryService(repository)
+        control_services.destination = DestinationService(
+            config_manager, apprise_client, telegram_client
+        )
         app.state.services = AppServices(
             config_manager,
             repository,
@@ -93,7 +148,11 @@ def create_app(config_path: Path) -> FastAPI:
         )
         task = asyncio.create_task(scheduler.run())
         try:
-            yield
+            if mcp_app is None:
+                yield
+            else:
+                async with mcp_app.router.lifespan_context(mcp_app):
+                    yield
         finally:
             await scheduler.stop()
             await task
@@ -102,6 +161,8 @@ def create_app(config_path: Path) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(router)
+    if mcp_app is not None:
+        app.mount("/", mcp_app)
     return app
 
 
