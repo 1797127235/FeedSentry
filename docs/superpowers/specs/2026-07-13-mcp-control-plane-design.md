@@ -193,9 +193,8 @@ Scheduler 和 MCP 共用 `PollCoordinator` 的每来源异步锁，避免 `check
 事件恢复到该阶段并设为立即到期，不能重跑已经完成的前置 AI、Firecrawl 或
 通知步骤。
 
-当前 schema 在事件进入 `failed` 时会清空 `resume_stage`，实现必须改为保留
-最后失败阶段。按照项目现行数据库策略，本次 schema 变化使用新数据库重建，
-不提供旧库自动迁移；部署时移走旧数据库并让所有来源重新静默建立基线。
+当前实现会在事件进入 `failed` 时清空已有的 `resume_stage`，新实现改为保留
+最后失败阶段。该变化复用现有列，不修改 SQLite schema，也不需要重建数据库。
 
 ## 10. MCP 传输与认证
 
