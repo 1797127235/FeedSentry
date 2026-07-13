@@ -91,6 +91,17 @@ class StatusCounts:
     failed: int
 
 
+@dataclass(frozen=True)
+class FailedEventRecord:
+    event_id: int
+    entry_id: int
+    title: str
+    failed_stage: EventStatus
+    failure_count: int
+    last_error: str | None
+    updated_at: datetime
+
+
 class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -146,6 +157,23 @@ class Repository:
             next_check_at=row.next_check_at,
             last_error=row.last_error,
         )
+
+    async def list_feed_states(self) -> list[FeedStateRecord]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(select(FeedStateRow).order_by(FeedStateRow.source_url))
+            return [
+                FeedStateRecord(
+                    source_url=row.source_url,
+                    etag=row.etag,
+                    last_modified=row.last_modified,
+                    initialized_at=row.initialized_at,
+                    last_success_at=row.last_success_at,
+                    consecutive_failures=row.consecutive_failures,
+                    next_check_at=row.next_check_at,
+                    last_error=row.last_error,
+                )
+                for row in rows
+            ]
 
     async def record_feed_success(
         self,
@@ -512,7 +540,7 @@ class Repository:
             if attempt >= 5:
                 target = EventStatus.FAILED
                 next_attempt = None
-                resume_stage = None
+                resume_stage = failed_stage.value
             else:
                 assert_transition(failed_stage, EventStatus.RETRY_WAIT)
                 target = EventStatus.RETRY_WAIT
@@ -524,6 +552,48 @@ class Repository:
             row.last_error = error[:1000]
             row.next_attempt_at = next_attempt
             row.updated_at = now
+
+    async def list_failed_events(self, limit: int = 100) -> list[FailedEventRecord]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(EventRow, EntryRow)
+                .join(EntryRow, EventRow.entry_id == EntryRow.id)
+                .where(EventRow.status == EventStatus.FAILED.value)
+                .order_by(EventRow.updated_at.desc())
+                .limit(limit)
+            )
+            return [
+                FailedEventRecord(
+                    event_id=event.id,
+                    entry_id=event.entry_id,
+                    title=entry.title,
+                    failed_stage=EventStatus(event.resume_stage),
+                    failure_count=event.failure_count,
+                    last_error=event.last_error,
+                    updated_at=event.updated_at,
+                )
+                for event, entry in rows
+                if event.resume_stage is not None
+            ]
+
+    async def retry_failed_event(self, event_id: int) -> bool:
+        now = datetime.now(UTC)
+        statement = (
+            update(EventRow)
+            .where(
+                EventRow.id == event_id,
+                EventRow.status == EventStatus.FAILED.value,
+                EventRow.resume_stage.is_not(None),
+            )
+            .values(
+                status=EventStatus.RETRY_WAIT.value,
+                next_attempt_at=now,
+                updated_at=now,
+            )
+        )
+        async with self._session_factory.begin() as session:
+            result = await session.execute(statement)
+        return result.rowcount == 1
 
     async def resume_event(self, event_id: int) -> None:
         async with self._session_factory.begin() as session:

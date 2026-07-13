@@ -4,6 +4,8 @@ integrations:
     api_key: ${FIRECRAWL_API_KEY:-}
   apprise:
     base_url: ${APPRISE_BASE_URL}
+  rsshub:
+    base_url: https://rsshub.antest.cc.cd
 ai:
   base_url: ${AI_BASE_URL}
   api_key: ${AI_API_KEY}
@@ -13,7 +15,9 @@ storage:
 filter:
   goal: Important product releases
 sources:
-  - url: https://example.com/feed.xml
+  - id: example
+    kind: feed
+    url: https://example.com/feed.xml
     enabled: false
 destination:
   apprise_key: telegram

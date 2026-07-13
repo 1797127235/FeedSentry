@@ -227,3 +227,34 @@ async def test_upsert_entry_returns_original_first_seen_at(repository: Repositor
 
     assert second.id == first.id
     assert second.first_seen_at == first.first_seen_at
+
+
+async def test_terminal_failure_preserves_stage_and_can_be_retried(repository: Repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="failed-item",
+        title="Failed",
+        summary="Summary",
+        link="https://example.com/failed",
+        author=None,
+        published_at=None,
+        content_hash="failed-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    for _ in range(4):
+        await repository.schedule_event_retry(event_id, EventStatus.SCREENING, "AI unavailable")
+        await repository.make_event_due(event_id)
+        await repository.resume_event(event_id)
+    await repository.schedule_event_retry(event_id, EventStatus.SCREENING, "AI unavailable")
+
+    failed = await repository.get_event(event_id)
+    assert failed.status is EventStatus.FAILED
+    assert failed.resume_stage is EventStatus.SCREENING
+
+    assert await repository.retry_failed_event(event_id) is True
+    waiting = await repository.get_event(event_id)
+    assert waiting.status is EventStatus.RETRY_WAIT
+    assert waiting.resume_stage is EventStatus.SCREENING
+    assert waiting.next_attempt_at is not None

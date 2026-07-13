@@ -43,6 +43,8 @@ uv run ruff format --check .
 - 不要提交 `config.yaml`、`.env`、API key、Bot token、通知 URL、数据库文件
   或运行日志。
 - `config.example.yaml` 说明了必需的环境变量。
+- MCP Token 只通过 `FEEDSENTRY_MCP_TOKEN` 环境变量提供，不得写入 `config.yaml`
+  或日志。RSSHub 实例配置在 `integrations.rsshub.base_url`。
 - `AI_BASE_URL` 是以 `/v1` 结尾的基址；应用会自动追加
   `/chat/completions`。
 - Firecrawl 与 Apprise 部署在宿主机上；容器通过
@@ -98,3 +100,11 @@ docker compose config -q
 
 后续改动保持聚焦。避免无关依赖升级和大范围格式化。若未来再次修改数据库
 schema，必须先明确是新库重建还是提供升级路径。
+
+## MCP 控制面
+
+- MCP handler 只能调用控制服务，不能直接编辑 YAML、操作 ORM、执行 Shell。
+- 配置写入必须保留环境变量占位符，并通过同目录临时文件原子替换。
+- Compose 挂载可写的 `config/` 目录，不要把单个配置文件作为只读 bind mount。
+- 来源立即检查与 Scheduler 共用每来源锁；失败事件只能从已保存失败阶段恢复。
+- RSSHub Radar 使用配置实例的 `/api/radar/rules`，不复制路由规则到项目。

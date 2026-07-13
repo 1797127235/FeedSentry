@@ -12,6 +12,8 @@ integrations:
     api_key: ${FIRECRAWL_KEY:-}
   apprise:
     base_url: http://apprise:8000
+  rsshub:
+    base_url: https://rsshub.antest.cc.cd
 ai:
   base_url: http://llm:8080/v1
   api_key: secret-ai-key
@@ -21,7 +23,9 @@ storage:
 filter:
   goal: Important releases only
 sources:
-  - url: https://example.com/feed.xml
+  - id: example
+    kind: feed
+    url: https://example.com/feed.xml
     enabled: true
 destination:
   apprise_key: telegram
@@ -42,7 +46,10 @@ def test_load_config_expands_environment_and_loads_global_pipeline(tmp_path, mon
     assert str(config.integrations.firecrawl.base_url) == "http://firecrawl:3002/"
     assert config.integrations.firecrawl.api_key is None
     assert config.filter.goal == "Important releases only"
+    assert config.sources[0].id == "example"
+    assert config.sources[0].kind == "feed"
     assert str(config.sources[0].url) == "https://example.com/feed.xml"
+    assert config.sources[0].feed_url(config.integrations.rsshub) == "https://example.com/feed.xml"
     assert config.sources[0].enabled is True
     assert config.destination.apprise_key == "telegram"
 
@@ -77,7 +84,11 @@ def test_load_config_rejects_duplicate_source_urls(tmp_path, monkeypatch) -> Non
         config_path,
         VALID_CONFIG.replace(
             "destination:\n",
-            "  - url: https://example.com/feed.xml\n    enabled: false\ndestination:\n",
+            "  - id: duplicate\n"
+            "    kind: feed\n"
+            "    url: https://example.com/feed.xml\n"
+            "    enabled: false\n"
+            "destination:\n",
         ),
     )
 
@@ -92,11 +103,80 @@ def test_load_config_rejects_old_monitor_shape(tmp_path, monkeypatch) -> None:
         config_path,
         VALID_CONFIG.replace(
             "filter:\n  goal: Important releases only\nsources:\n"
-            "  - url: https://example.com/feed.xml\n    enabled: true\ndestination:\n"
+            "  - id: example\n    kind: feed\n"
+            "    url: https://example.com/feed.xml\n    enabled: true\ndestination:\n"
             "  apprise_key: telegram",
             "monitors: []",
         ),
     )
+
+    with pytest.raises(ValidationError):
+        load_config(config_path)
+
+
+def test_load_config_resolves_rsshub_source(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        VALID_CONFIG.replace(
+            "  - id: example\n    kind: feed\n    url: https://example.com/feed.xml",
+            "  - id: bilibili-video\n"
+            "    kind: rsshub\n"
+            "    page_url: https://space.bilibili.com/946974\n"
+            "    route: /bilibili/user/video/946974",
+        ),
+    )
+
+    config = load_config(config_path)
+
+    source = config.sources[0]
+    assert source.kind == "rsshub"
+    assert source.feed_url(config.integrations.rsshub) == (
+        "https://rsshub.antest.cc.cd/bilibili/user/video/946974"
+    )
+
+
+@pytest.mark.parametrize(
+    ("replacement", "match"),
+    [
+        ("id: Bad_ID", "string_pattern_mismatch"),
+        ("id: example", "source IDs must be unique"),
+    ],
+)
+def test_load_config_rejects_invalid_or_duplicate_source_ids(
+    tmp_path, monkeypatch, replacement, match
+) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    if replacement == "id: example":
+        addition = "  - id: example\n    kind: feed\n    url: https://example.com/other.xml\n"
+        content = VALID_CONFIG.replace("destination:\n", addition + "destination:\n")
+    else:
+        content = VALID_CONFIG.replace("id: example", replacement)
+    write_config(config_path, content)
+
+    with pytest.raises(ValidationError, match=match):
+        load_config(config_path)
+
+
+@pytest.mark.parametrize(
+    "source_yaml",
+    [
+        "id: direct\n    kind: feed",
+        "id: hub\n    kind: rsshub\n    route: /bilibili/user/video/1",
+        "id: hub\n    kind: rsshub\n    page_url: https://space.bilibili.com/1",
+        "id: hub\n    kind: rsshub\n    page_url: https://space.bilibili.com/1\n"
+        "    route: bilibili/user/video/1",
+    ],
+)
+def test_load_config_rejects_incomplete_sources(tmp_path, monkeypatch, source_yaml) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    content = VALID_CONFIG.replace(
+        "id: example\n    kind: feed\n    url: https://example.com/feed.xml", source_yaml
+    )
+    write_config(config_path, content)
 
     with pytest.raises(ValidationError):
         load_config(config_path)

@@ -12,13 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class Repository(Protocol):
-    async def source_is_due(self, source_url: str, now: datetime) -> bool: ...
-
     async def list_due_event_ids(self, now: datetime, limit: int) -> list[int]: ...
 
 
-class Ingestion(Protocol):
-    async def poll_source(self, source_url: str, goal: str) -> int: ...
+class Polling(Protocol):
+    async def poll(self, source: object, goal: str, *, rsshub: object | None) -> int: ...
 
 
 class Processor(Protocol):
@@ -30,7 +28,7 @@ class Scheduler:
         self,
         config_manager: ConfigManager,
         repository: Repository,
-        ingestion: Ingestion,
+        polling: Polling,
         processor: Processor,
         *,
         clock: Callable[[], datetime] | None = None,
@@ -38,7 +36,7 @@ class Scheduler:
     ) -> None:
         self.config_manager = config_manager
         self.repository = repository
-        self.ingestion = ingestion
+        self.polling = polling
         self.processor = processor
         self.clock = clock or (lambda: datetime.now(UTC))
         self.tick_seconds = tick_seconds
@@ -52,15 +50,14 @@ class Scheduler:
             return
         now = self.clock()
         for source in config.sources:
-            if not source.enabled:
-                continue
-            source_url = str(source.url)
-            if not await self.repository.source_is_due(source_url, now):
-                continue
             try:
-                await self.ingestion.poll_source(source_url, config.filter.goal)
+                await self.polling.poll(
+                    source,
+                    config.filter.goal,
+                    rsshub=config.integrations.rsshub,
+                )
             except Exception:
-                logger.exception("source poll failed", extra={"source_url": source_url})
+                logger.exception("source poll failed", extra={"source_id": source.id})
         for event_id in await self.repository.list_due_event_ids(now, limit=20):
             await self.processor.process_event(event_id)
         self.last_tick_at = now
