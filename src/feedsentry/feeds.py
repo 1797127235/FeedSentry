@@ -48,6 +48,10 @@ class FeedFetchResult:
 
 def normalize_feed(content: bytes, source_url: str) -> tuple[NormalizedEntry, ...]:
     parsed = feedparser.parse(content)
+    return normalize_parsed_feed(parsed, source_url)
+
+
+def normalize_parsed_feed(parsed: Any, source_url: str) -> tuple[NormalizedEntry, ...]:
     return tuple(_normalize_entry(entry, source_url) for entry in parsed.entries)
 
 
