@@ -86,7 +86,7 @@ def create_mcp_app(
 
     @server.tool()
     async def discover_feeds(page_url: str) -> Any:
-        """Discover RSSHub feeds available for a platform page URL."""
+        """根据平台页面 URL，通过 RSSHub Radar 发现可订阅的信息源。"""
         return {
             "candidates": _serialize(
                 await _require(services.sources, "sources").discover_feeds(page_url)
@@ -95,68 +95,68 @@ def create_mcp_app(
 
     @server.tool()
     async def subscribe_feed(candidate_id: str) -> Any:
-        """Subscribe to a previously discovered RSSHub feed candidate."""
+        """订阅先前发现的 RSSHub 候选信息源，并静默建立基线。"""
         return _serialize(await _require(services.sources, "sources").subscribe_feed(candidate_id))
 
     @server.tool()
     async def add_feed(url: str) -> Any:
-        """Validate and subscribe to a direct RSS or Atom feed URL."""
+        """验证并订阅一个直接的 RSS 或 Atom 地址，并静默建立基线。"""
         return _serialize(await _require(services.sources, "sources").add_feed(url))
 
     @server.tool()
     async def list_sources() -> Any:
-        """List configured sources and their current health."""
+        """列出所有已配置的信息源及其当前健康状态。"""
         return {"sources": _serialize(await _require(services.sources, "sources").list_sources())}
 
     @server.tool()
     async def set_source_enabled(source_id: str, enabled: bool) -> Any:
-        """Enable or disable a configured source."""
+        """启用或停用指定的信息源。"""
         return {
             "changed": await _require(services.sources, "sources").set_enabled(source_id, enabled)
         }
 
     @server.tool()
     async def remove_source(source_id: str) -> Any:
-        """Remove a source while preserving its stored processing history."""
+        """删除指定信息源，但保留已经存储的处理历史。"""
         return {"removed": await _require(services.sources, "sources").remove(source_id)}
 
     @server.tool()
     async def check_source_now(source_id: str) -> Any:
-        """Immediately check a configured source for new entries."""
+        """立即检查指定信息源是否有新条目。"""
         return {"created_events": await _require(services.sources, "sources").check_now(source_id)}
 
     @server.tool()
     async def get_filter_goal() -> Any:
-        """Return the global AI filtering goal."""
+        """获取当前全局 AI 筛选关注点。"""
         return {"goal": _require(services.filter, "filter").get_goal()}
 
     @server.tool()
     async def set_filter_goal(goal: str) -> Any:
-        """Replace the global AI filtering goal for future entries."""
+        """修改全局 AI 筛选关注点，仅影响之后发现的新条目。"""
         return {"changed": await _require(services.filter, "filter").set_goal(goal)}
 
     @server.tool()
     async def get_status() -> Any:
-        """Return system and source health status."""
+        """获取系统、信息源和事件的当前状态。"""
         return _serialize(await _require(services.status, "status").get_status())
 
     @server.tool()
     async def list_failed_events() -> Any:
-        """List terminally failed processing events."""
+        """列出经过重试后仍然失败的处理事件。"""
         return {
             "events": _serialize(await _require(services.recovery, "recovery").list_failed_events())
         }
 
     @server.tool()
     async def retry_failed_event(event_id: int) -> Any:
-        """Retry a terminal event from its recorded failed stage."""
+        """从已记录的失败阶段重新处理指定事件。"""
         return {
             "retried": await _require(services.recovery, "recovery").retry_failed_event(event_id)
         }
 
     @server.tool()
     async def test_destination() -> Any:
-        """Send an explicitly marked FeedSentry test notification."""
+        """向当前通知目标发送一条明确标记为测试的 FeedSentry 通知。"""
         return {"response": await _require(services.destination, "destination").test()}
 
     app = server.streamable_http_app()
