@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+from feedsentry.auth import BearerTokenMiddleware
+from feedsentry.serialize import serialize_public
+
+# Re-export for callers that imported BearerTokenMiddleware from mcp.
+__all__ = [
+    "BearerTokenMiddleware",
+    "ControlServices",
+    "RequestLimitMiddleware",
+    "create_mcp_app",
+]
 
 
 @dataclass
@@ -22,19 +31,6 @@ class ControlServices:
     status: Any = None
     recovery: Any = None
     destination: Any = None
-
-
-class BearerTokenMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, *, token: str) -> None:
-        super().__init__(app)
-        self.token = token
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        authorization = request.headers.get("authorization", "")
-        scheme, _, supplied = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, self.token):
-            return JSONResponse({"detail": "unauthorized"}, status_code=401)
-        return await call_next(request)
 
 
 class RequestLimitMiddleware(BaseHTTPMiddleware):
@@ -88,7 +84,7 @@ def create_mcp_app(
     async def discover_feeds(page_url: str) -> Any:
         """根据平台页面 URL，通过 RSSHub Radar 发现可订阅的信息源。"""
         return {
-            "candidates": _serialize(
+            "candidates": serialize_public(
                 await _require(services.sources, "sources").discover_feeds(page_url)
             )
         }
@@ -96,17 +92,21 @@ def create_mcp_app(
     @server.tool()
     async def subscribe_feed(candidate_id: str) -> Any:
         """订阅先前发现的 RSSHub 候选信息源，并静默建立基线。"""
-        return _serialize(await _require(services.sources, "sources").subscribe_feed(candidate_id))
+        return serialize_public(
+            await _require(services.sources, "sources").subscribe_feed(candidate_id)
+        )
 
     @server.tool()
     async def add_feed(url: str) -> Any:
         """验证并订阅一个直接的 RSS 或 Atom 地址，并静默建立基线。"""
-        return _serialize(await _require(services.sources, "sources").add_feed(url))
+        return serialize_public(await _require(services.sources, "sources").add_feed(url))
 
     @server.tool()
     async def list_sources() -> Any:
         """列出所有已配置的信息源及其当前健康状态。"""
-        return {"sources": _serialize(await _require(services.sources, "sources").list_sources())}
+        return {
+            "sources": serialize_public(await _require(services.sources, "sources").list_sources())
+        }
 
     @server.tool()
     async def set_source_enabled(source_id: str, enabled: bool) -> Any:
@@ -138,13 +138,15 @@ def create_mcp_app(
     @server.tool()
     async def get_status() -> Any:
         """获取系统、信息源和事件的当前状态。"""
-        return _serialize(await _require(services.status, "status").get_status())
+        return serialize_public(await _require(services.status, "status").get_status())
 
     @server.tool()
     async def list_failed_events() -> Any:
         """列出经过重试后仍然失败的处理事件。"""
         return {
-            "events": _serialize(await _require(services.recovery, "recovery").list_failed_events())
+            "events": serialize_public(
+                await _require(services.recovery, "recovery").list_failed_events()
+            )
         }
 
     @server.tool()
@@ -177,15 +179,3 @@ def _require(service: Any, name: str) -> Any:
     if service is None:
         raise RuntimeError(f"{name} control service is unavailable")
     return service
-
-
-def _serialize(value: Any) -> Any:
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if is_dataclass(value) and not isinstance(value, type):
-        return {key: _serialize(item) for key, item in asdict(value).items()}
-    if isinstance(value, dict):
-        return {str(key): _serialize(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_serialize(item) for item in value]
-    return value
