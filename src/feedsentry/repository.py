@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -100,6 +102,48 @@ class FailedEventRecord:
     failure_count: int
     last_error: str | None
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class EventListItem:
+    event_id: int
+    entry_id: int
+    status: EventStatus
+    resume_stage: EventStatus | None
+    title: str
+    link: str
+    source_url: str
+    decision_reason: str | None
+    output_title: str | None
+    output_summary: str | None
+    failure_count: int
+    last_error: str | None
+    next_attempt_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+def _encode_event_cursor(updated_at: datetime, event_id: int) -> str:
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=UTC)
+    else:
+        updated_at = updated_at.astimezone(UTC)
+    payload = f"{updated_at.isoformat()}|{event_id}".encode()
+    return base64.urlsafe_b64encode(payload).decode("ascii")
+
+
+def _decode_event_cursor(cursor: str) -> tuple[datetime, int]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        updated_at_text, event_id_text = raw.split("|", 1)
+        updated_at = datetime.fromisoformat(updated_at_text)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+        else:
+            updated_at = updated_at.astimezone(UTC)
+        return updated_at, int(event_id_text)
+    except (ValueError, UnicodeDecodeError, TypeError) as exc:
+        raise ValueError("invalid event cursor") from exc
 
 
 class Repository:
@@ -575,6 +619,89 @@ class Repository:
                 for event, entry in rows
                 if event.resume_stage is not None
             ]
+
+    @staticmethod
+    def _event_list_item(event: EventRow, entry: EntryRow) -> EventListItem:
+        return EventListItem(
+            event_id=event.id,
+            entry_id=event.entry_id,
+            status=EventStatus(event.status),
+            resume_stage=(
+                EventStatus(event.resume_stage) if event.resume_stage is not None else None
+            ),
+            title=entry.title,
+            link=entry.link,
+            source_url=entry.source_url,
+            decision_reason=event.decision_reason,
+            output_title=event.output_title,
+            output_summary=event.output_summary,
+            failure_count=event.failure_count,
+            last_error=event.last_error,
+            next_attempt_at=event.next_attempt_at,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+        )
+
+    async def list_events(
+        self,
+        *,
+        status: str | None,
+        source_url: str | None,
+        q: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[list[EventListItem], str | None]:
+        clamped_limit = max(1, min(limit, 100))
+        filters: list[Any] = []
+        if status is not None:
+            filters.append(EventRow.status == status)
+        if source_url is not None:
+            filters.append(EntryRow.source_url == source_url)
+        if q is not None and q != "":
+            filters.append(EntryRow.title.like(f"%{q}%"))
+        if cursor is not None:
+            cursor_updated_at, cursor_id = _decode_event_cursor(cursor)
+            filters.append(
+                or_(
+                    EventRow.updated_at < cursor_updated_at,
+                    and_(EventRow.updated_at == cursor_updated_at, EventRow.id < cursor_id),
+                )
+            )
+
+        statement = (
+            select(EventRow, EntryRow)
+            .join(EntryRow, EventRow.entry_id == EntryRow.id)
+            .order_by(EventRow.updated_at.desc(), EventRow.id.desc())
+            .limit(clamped_limit + 1)
+        )
+        if filters:
+            statement = statement.where(*filters)
+
+        async with self._session_factory() as session:
+            rows = list(await session.execute(statement))
+
+        has_more = len(rows) > clamped_limit
+        page = rows[:clamped_limit]
+        items = [self._event_list_item(event, entry) for event, entry in page]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_event_cursor(last.updated_at, last.event_id)
+        return items, next_cursor
+
+    async def status_breakdown(self) -> dict[str, int]:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(EventRow.status, func.count()).group_by(EventRow.status)
+            )
+            return {status: int(count) for status, count in rows}
+
+    async def list_deliveries_for_event(self, event_id: int) -> list[DeliveryRecord]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(DeliveryRow).where(DeliveryRow.event_id == event_id).order_by(DeliveryRow.id)
+            )
+            return [self._delivery_record(row) for row in rows]
 
     async def retry_failed_event(self, event_id: int) -> bool:
         now = datetime.now(UTC)
