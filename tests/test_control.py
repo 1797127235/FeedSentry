@@ -245,12 +245,169 @@ async def test_status_service_returns_source_health(config_manager, repository) 
         checked_at=datetime.now(UTC),
         next_check_at=datetime.now(UTC),
     )
-    status = await StatusService(config_manager, repository).get_status()
+    tick = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+    status = await StatusService(
+        config_manager, repository, last_tick_provider=lambda: tick
+    ).get_status()
 
     assert status.sources == 1
     assert status.enabled_sources == 1
     assert status.source_statuses[0].consecutive_failures == 1
     assert status.source_statuses[0].last_error == "timeout"
+    assert status.last_tick_at == tick
+    assert status.status_counts == {}
+
+
+async def test_status_service_lists_events_with_source_id(config_manager, repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed.xml",
+        external_id="list-control",
+        title="Listed item",
+        summary="Summary",
+        link="https://example.com/list-control",
+        author=None,
+        published_at=None,
+        content_hash="list-control-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
+
+    service = StatusService(config_manager, repository, last_tick_provider=lambda: None)
+    views, cursor = await service.list_events(
+        status=None, source_id=None, q=None, limit=10, cursor=None
+    )
+
+    assert cursor is None
+    assert len(views) == 1
+    assert views[0].event_id == event_id
+    assert views[0].entry_id == entry.id
+    assert views[0].status == EventStatus.DISCOVERED.value
+    assert views[0].title == "Listed item"
+    assert views[0].link == "https://example.com/list-control"
+    assert views[0].source_url == "https://example.com/feed.xml"
+    assert views[0].source_id == "example"
+    assert views[0].created_at.tzinfo is UTC
+    assert views[0].updated_at.tzinfo is UTC
+
+
+async def test_status_service_list_events_filters_by_source_id(config_manager, repository) -> None:
+    entry_known = await repository.upsert_entry(
+        source_url="https://example.com/feed.xml",
+        external_id="known",
+        title="Known",
+        summary="S",
+        link="https://example.com/known",
+        author=None,
+        published_at=None,
+        content_hash="known-hash",
+        raw_json="{}",
+    )
+    entry_other = await repository.upsert_entry(
+        source_url="https://other.example/feed.xml",
+        external_id="other",
+        title="Other",
+        summary="S",
+        link="https://other.example/other",
+        author=None,
+        published_at=None,
+        content_hash="other-hash",
+        raw_json="{}",
+    )
+    known_id = await repository.create_event(entry_known.id, "goal", "ghash")
+    await repository.create_event(entry_other.id, "goal", "ghash")
+
+    service = StatusService(config_manager, repository)
+    views, _ = await service.list_events(
+        status=None, source_id="example", q=None, limit=10, cursor=None
+    )
+
+    assert [view.event_id for view in views] == [known_id]
+    assert views[0].source_id == "example"
+
+
+async def test_status_service_list_events_unknown_source_url_maps_none(
+    config_manager, repository
+) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://deleted.example/feed.xml",
+        external_id="orphan",
+        title="Orphan",
+        summary="S",
+        link="https://deleted.example/orphan",
+        author=None,
+        published_at=None,
+        content_hash="orphan-hash",
+        raw_json="{}",
+    )
+    await repository.create_event(entry.id, "goal", "ghash")
+
+    service = StatusService(config_manager, repository)
+    views, _ = await service.list_events(status=None, source_id=None, q=None, limit=10, cursor=None)
+
+    assert views[0].source_id is None
+    assert views[0].source_url == "https://deleted.example/feed.xml"
+
+
+async def test_status_service_get_event_includes_deliveries_and_truncates_goal(
+    config_manager, repository
+) -> None:
+    long_goal = "G" * 2500
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed.xml",
+        external_id="detail-control",
+        title="Detail item",
+        summary="Summary",
+        link="https://example.com/detail-control",
+        author="Alice",
+        published_at=datetime(2026, 1, 2, 3, 4, tzinfo=UTC),
+        content_hash="detail-control-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, long_goal, "goal-hash")
+    delivery = await repository.create_delivery(event_id, "telegram")
+    await repository.mark_delivery_success(delivery.id, "sent-ok")
+
+    service = StatusService(config_manager, repository)
+    detail = await service.get_event(event_id)
+
+    assert detail.event.event_id == event_id
+    assert detail.event.source_id == "example"
+    assert detail.author == "Alice"
+    assert detail.published_at == datetime(2026, 1, 2, 3, 4, tzinfo=UTC)
+    assert len(detail.goal_snapshot) == 2000
+    assert detail.goal_snapshot == long_goal[:2000]
+    assert len(detail.deliveries) == 1
+    assert detail.deliveries[0].destination_key == "telegram"
+    assert detail.deliveries[0].status == "delivered"
+    assert detail.deliveries[0].response_summary == "sent-ok"
+
+
+async def test_status_service_get_event_missing_raises(config_manager, repository) -> None:
+    service = StatusService(config_manager, repository)
+    with pytest.raises(LookupError):
+        await service.get_event(999999)
+
+
+async def test_status_service_get_status_includes_status_counts(config_manager, repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed.xml",
+        external_id="count-control",
+        title="Count",
+        summary="S",
+        link="https://example.com/count-control",
+        author=None,
+        published_at=None,
+        content_hash="count-control-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "ghash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    await repository.transition_event(
+        event_id, EventStatus.SCREENING, EventStatus.FILTERED, decision_reason="nope"
+    )
+
+    status = await StatusService(config_manager, repository).get_status()
+    assert status.status_counts.get(EventStatus.FILTERED.value, 0) >= 1
 
 
 async def test_recovery_service_lists_and_retries_failed_events(repository) -> None:
