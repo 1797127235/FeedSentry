@@ -583,9 +583,115 @@ button {
   margin-bottom: 16px;
   padding: 4px;
   width: fit-content;
+  max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.tabs-wrap {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+}
+
+.field-inline {
+  margin-bottom: 0;
+  min-width: 160px;
+}
+
+.field-grow {
+  flex: 1 1 220px;
+}
+
+.field select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.field select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.breadcrumb {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.detail-list {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.detail-list > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 16px;
+}
+
+.detail-list dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.detail-list dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.pre-wrap {
+  white-space: pre-wrap;
+}
+
+.code-block {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.stat-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.badge-warn {
+  color: #e0c070;
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .tab {
@@ -669,7 +775,8 @@ button {
     padding: 16px;
   }
 
-  .stat-grid {
+  .stat-grid,
+  .stat-grid-3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -683,5 +790,15 @@ button {
 
   .tab {
     flex: 1;
+  }
+
+  .detail-list > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

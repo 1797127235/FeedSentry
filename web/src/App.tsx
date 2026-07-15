@@ -4,8 +4,11 @@ import { useAuth } from "./auth";
 import { Shell } from "./layout/Shell";
 import { AddSourcePage } from "./pages/AddSourcePage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { EventDetailPage } from "./pages/EventDetailPage";
+import { EventsPage } from "./pages/EventsPage";
+import { FilterPage } from "./pages/FilterPage";
 import { LoginPage } from "./pages/LoginPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { SourcesPage } from "./pages/SourcesPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -30,33 +33,10 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="sources/add" element={<AddSourcePage />} />
-        <Route
-          path="events"
-          element={
-            <PlaceholderPage title="事件" description="事件流与 AI 审计" />
-          }
-        />
-        <Route
-          path="events/:id"
-          element={
-            <PlaceholderPage title="事件详情" description="决策、投递与重试" />
-          }
-        />
-        <Route
-          path="filter"
-          element={
-            <PlaceholderPage
-              title="关注点"
-              description="全局筛选目标 filter.goal"
-            />
-          }
-        />
-        <Route
-          path="settings"
-          element={
-            <PlaceholderPage title="设置" description="Token 与测试通知" />
-          }
-        />
+        <Route path="events" element={<EventsPage />} />
+        <Route path="events/:id" element={<EventDetailPage />} />
+        <Route path="filter" element={<FilterPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
