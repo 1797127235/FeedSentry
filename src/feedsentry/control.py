@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -71,6 +72,47 @@ class SystemStatus:
     failed_events: int
     config_error: str | None
     source_statuses: tuple[SourceView, ...]
+    last_tick_at: datetime | None = None
+    status_counts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EventView:
+    event_id: int
+    entry_id: int
+    status: str
+    resume_stage: str | None
+    title: str
+    link: str
+    source_url: str
+    source_id: str | None
+    decision_reason: str | None
+    output_title: str | None
+    output_summary: str | None
+    failure_count: int
+    last_error: str | None
+    next_attempt_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class DeliveryView:
+    destination_key: str
+    status: str
+    attempts: int
+    response_summary: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class EventDetailView:
+    event: EventView
+    author: str | None
+    published_at: datetime | None
+    goal_snapshot: str
+    deliveries: tuple[DeliveryView, ...]
 
 
 @dataclass(frozen=True)
@@ -264,15 +306,22 @@ class FilterService:
 
 
 class StatusService:
-    def __init__(self, manager: ConfigManager, repository: Repository) -> None:
+    def __init__(
+        self,
+        manager: ConfigManager,
+        repository: Repository,
+        last_tick_provider: Callable[[], datetime | None] | None = None,
+    ) -> None:
         self.manager = manager
         self.repository = repository
+        self.last_tick_provider = last_tick_provider
 
     async def get_status(self) -> SystemStatus:
         if self.manager.current is None:
             raise RuntimeError("configuration is not loaded")
         current = self.manager.current
         counts = await self.repository.status_counts()
+        status_counts = await self.repository.status_breakdown()
         states = {state.source_url: state for state in await self.repository.list_feed_states()}
         views = []
         for source in current.sources:
@@ -291,6 +340,7 @@ class StatusService:
                     last_error=state.last_error if state else None,
                 )
             )
+        last_tick_at = self.last_tick_provider() if self.last_tick_provider is not None else None
         return SystemStatus(
             sources=len(current.sources),
             enabled_sources=sum(source.enabled for source in current.sources),
@@ -298,6 +348,116 @@ class StatusService:
             failed_events=counts.failed,
             config_error=self.manager.last_error,
             source_statuses=tuple(views),
+            last_tick_at=last_tick_at,
+            status_counts=status_counts,
+        )
+
+    async def list_events(
+        self,
+        *,
+        status: str | None,
+        source_id: str | None,
+        q: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[list[EventView], str | None]:
+        source_url: str | None = None
+        if source_id is not None:
+            source_url = self._source_url_for_id(source_id)
+            if source_url is None:
+                return [], None
+        items, next_cursor = await self.repository.list_events(
+            status=status,
+            source_url=source_url,
+            q=q,
+            limit=limit,
+            cursor=cursor,
+        )
+        url_to_id = self._source_url_to_id()
+        views = [self._event_view(item, url_to_id.get(item.source_url)) for item in items]
+        return views, next_cursor
+
+    async def get_event(self, event_id: int) -> EventDetailView:
+        bundle = await self.repository.get_event_bundle(event_id)
+        deliveries = await self.repository.list_deliveries_for_event(event_id)
+        url_to_id = self._source_url_to_id()
+        source_id = url_to_id.get(bundle.entry.source_url)
+        event = bundle.event
+        view = EventView(
+            event_id=event.id,
+            entry_id=event.entry_id,
+            status=event.status.value,
+            resume_stage=event.resume_stage.value if event.resume_stage is not None else None,
+            title=bundle.entry.title,
+            link=bundle.entry.link,
+            source_url=bundle.entry.source_url,
+            source_id=source_id,
+            decision_reason=event.decision_reason,
+            output_title=event.output_title,
+            output_summary=event.output_summary,
+            failure_count=event.failure_count,
+            last_error=event.last_error,
+            next_attempt_at=event.next_attempt_at,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+        )
+        goal = event.goal_snapshot
+        if len(goal) > 2000:
+            goal = goal[:2000]
+        return EventDetailView(
+            event=view,
+            author=bundle.entry.author,
+            published_at=bundle.entry.published_at,
+            goal_snapshot=goal,
+            deliveries=tuple(
+                DeliveryView(
+                    destination_key=delivery.apprise_key,
+                    status=delivery.status,
+                    attempts=delivery.attempts,
+                    response_summary=delivery.response_summary,
+                    created_at=delivery.created_at,
+                    updated_at=delivery.updated_at,
+                )
+                for delivery in deliveries
+            ),
+        )
+
+    def _source_url_to_id(self) -> dict[str, str]:
+        if self.manager.current is None:
+            raise RuntimeError("configuration is not loaded")
+        current = self.manager.current
+        return {
+            source.feed_url(current.integrations.rsshub): source.id for source in current.sources
+        }
+
+    def _source_url_for_id(self, source_id: str) -> str | None:
+        if self.manager.current is None:
+            raise RuntimeError("configuration is not loaded")
+        current = self.manager.current
+        source = next((item for item in current.sources if item.id == source_id), None)
+        if source is None:
+            return None
+        return source.feed_url(current.integrations.rsshub)
+
+    @staticmethod
+    def _event_view(item, source_id: str | None) -> EventView:
+        return EventView(
+            event_id=item.event_id,
+            entry_id=item.entry_id,
+            status=item.status.value,
+            resume_stage=item.resume_stage.value if item.resume_stage is not None else None,
+            title=item.title,
+            link=item.link,
+            source_url=item.source_url,
+            source_id=source_id,
+            decision_reason=item.decision_reason,
+            output_title=item.output_title,
+            output_summary=item.output_summary,
+            failure_count=item.failure_count,
+            last_error=item.last_error,
+            next_attempt_at=item.next_attempt_at,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
         )
 
 

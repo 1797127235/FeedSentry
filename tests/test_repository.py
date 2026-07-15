@@ -258,3 +258,132 @@ async def test_terminal_failure_preserves_stage_and_can_be_retried(repository: R
     assert waiting.status is EventStatus.RETRY_WAIT
     assert waiting.resume_stage is EventStatus.SCREENING
     assert waiting.next_attempt_at is not None
+
+
+async def test_list_events_filters_and_paginates(repository: Repository) -> None:
+    now = datetime.now(UTC)
+    entry_a = await repository.upsert_entry(
+        source_url="https://example.com/a.xml",
+        external_id="1",
+        title="Alpha release",
+        summary="summary a",
+        link="https://example.com/a/1",
+        author=None,
+        published_at=now,
+        content_hash="h1",
+        raw_json="{}",
+    )
+    entry_b = await repository.upsert_entry(
+        source_url="https://example.com/b.xml",
+        external_id="2",
+        title="Beta noise",
+        summary="summary b",
+        link="https://example.com/b/2",
+        author=None,
+        published_at=now,
+        content_hash="h2",
+        raw_json="{}",
+    )
+    event_a = await repository.create_event(entry_a.id, "goal", "ghash")
+    event_b = await repository.create_event(entry_b.id, "goal", "ghash")
+    await repository.transition_event(event_a, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    await repository.transition_event(
+        event_a,
+        EventStatus.SCREENING,
+        EventStatus.FILTERED,
+        decision_reason="not relevant",
+    )
+    await repository.transition_event(event_b, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    await repository.transition_event(
+        event_b,
+        EventStatus.SCREENING,
+        EventStatus.DELIVERY_PENDING,
+        decision_reason="ship it",
+        output_title="Beta",
+        output_summary="important",
+    )
+
+    filtered, cursor = await repository.list_events(
+        status=EventStatus.FILTERED.value, source_url=None, q=None, limit=10, cursor=None
+    )
+    assert len(filtered) == 1
+    assert filtered[0].event_id == event_a
+    assert filtered[0].decision_reason == "not relevant"
+    assert filtered[0].title == "Alpha release"
+    assert filtered[0].source_url == "https://example.com/a.xml"
+    assert filtered[0].created_at.tzinfo is UTC
+    assert filtered[0].updated_at.tzinfo is UTC
+    assert cursor is None
+
+    searched, _ = await repository.list_events(
+        status=None, source_url=None, q="Beta", limit=10, cursor=None
+    )
+    assert [item.event_id for item in searched] == [event_b]
+
+    by_source, _ = await repository.list_events(
+        status=None,
+        source_url="https://example.com/a.xml",
+        q=None,
+        limit=10,
+        cursor=None,
+    )
+    assert [item.event_id for item in by_source] == [event_a]
+
+    page1, next_cursor = await repository.list_events(
+        status=None, source_url=None, q=None, limit=1, cursor=None
+    )
+    assert len(page1) == 1
+    assert next_cursor is not None
+    page2, next2 = await repository.list_events(
+        status=None, source_url=None, q=None, limit=1, cursor=next_cursor
+    )
+    assert len(page2) == 1
+    assert page1[0].event_id != page2[0].event_id
+    assert {page1[0].event_id, page2[0].event_id} == {event_a, event_b}
+    assert next2 is None
+
+
+async def test_status_breakdown_counts_by_status(repository: Repository) -> None:
+    now = datetime.now(UTC)
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed.xml",
+        external_id="x",
+        title="T",
+        summary="S",
+        link="https://example.com/x",
+        author=None,
+        published_at=now,
+        content_hash="hx",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "ghash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    await repository.transition_event(
+        event_id, EventStatus.SCREENING, EventStatus.FILTERED, decision_reason="nope"
+    )
+    breakdown = await repository.status_breakdown()
+    assert breakdown.get(EventStatus.FILTERED.value, 0) >= 1
+
+
+async def test_list_deliveries_for_event(repository: Repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="delivery-item",
+        title="Deliver me",
+        summary="Summary",
+        link="https://example.com/delivery",
+        author=None,
+        published_at=None,
+        content_hash="delivery-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "ghash")
+    first = await repository.create_delivery(event_id, "telegram")
+    second = await repository.create_delivery(event_id, "discord")
+    await repository.mark_delivery_success(first.id, "ok")
+
+    deliveries = await repository.list_deliveries_for_event(event_id)
+    assert [item.id for item in deliveries] == [first.id, second.id]
+    assert deliveries[0].status == "delivered"
+    assert deliveries[1].status == "pending"
+    assert deliveries[0].created_at.tzinfo is UTC

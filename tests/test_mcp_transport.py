@@ -31,7 +31,7 @@ async def mcp_client(token: str = "secret") -> AsyncIterator[ClientSession]:
     )
     async with app.router.lifespan_context(app):
         async with http:
-            async with streamable_http_client("http://localhost/mcp", http_client=http) as streams:
+            async with streamable_http_client("http://localhost/", http_client=http) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
                     await session.initialize()
                     yield session
@@ -68,8 +68,8 @@ async def test_mcp_rejects_missing_and_wrong_bearer_tokens() -> None:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://localhost"
         ) as http:
-            missing = await http.post("/mcp", json={})
-            wrong = await http.post("/mcp", json={}, headers={"Authorization": "Bearer wrong"})
+            missing = await http.post("/", json={})
+            wrong = await http.post("/", json={}, headers={"Authorization": "Bearer wrong"})
     assert missing.status_code == 401
     assert wrong.status_code == 401
 
@@ -87,7 +87,7 @@ async def test_mcp_rejects_oversized_request() -> None:
             base_url="http://localhost",
             headers={"Authorization": "Bearer secret"},
         ) as http:
-            response = await http.post("/mcp", content=b"x" * 11)
+            response = await http.post("/", content=b"x" * 11)
     assert response.status_code == 413
 
 
@@ -109,5 +109,5 @@ async def test_mcp_rejects_oversized_streamed_request_without_content_length() -
             base_url="http://localhost",
             headers={"Authorization": "Bearer secret"},
         ) as http:
-            response = await http.post("/mcp", content=chunks())
+            response = await http.post("/", content=chunks())
     assert response.status_code == 413

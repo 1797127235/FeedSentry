@@ -8,10 +8,12 @@ from pathlib import Path
 
 import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from feedsentry.ai import AIClient
-from feedsentry.api import router
+from feedsentry.api import console_router, public_router
 from feedsentry.apprise import AppriseClient
 from feedsentry.config import ConfigManager
 from feedsentry.config_store import ConfigStore
@@ -47,6 +49,19 @@ class AppServices:
     scheduler: Scheduler
     http: httpx.AsyncClient
     database: Database
+
+
+def _resolve_web_dist() -> Path | None:
+    candidates: list[Path] = []
+    env = os.environ.get("FEEDSENTRY_WEB_DIST")
+    if env:
+        candidates.append(Path(env))
+    candidates.append(Path("/app/web/dist"))
+    candidates.append(Path(__file__).resolve().parent.parent.parent / "web" / "dist")
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return None
 
 
 def create_app(config_path: Path) -> FastAPI:
@@ -131,7 +146,11 @@ def create_app(config_path: Path) -> FastAPI:
             polling,
         )
         control_services.filter = FilterService(config_manager, config_store)
-        control_services.status = StatusService(config_manager, repository)
+        control_services.status = StatusService(
+            config_manager,
+            repository,
+            last_tick_provider=lambda: scheduler.last_tick_at,
+        )
         control_services.recovery = RecoveryService(repository)
         control_services.destination = DestinationService(
             config_manager, apprise_client, telegram_client
@@ -146,6 +165,7 @@ def create_app(config_path: Path) -> FastAPI:
             http,
             database,
         )
+        app.state.control_services = control_services
         task = asyncio.create_task(scheduler.run())
         try:
             if mcp_app is None:
@@ -160,9 +180,34 @@ def create_app(config_path: Path) -> FastAPI:
             await database.dispose()
 
     app = FastAPI(lifespan=lifespan)
-    app.include_router(router)
+    app.include_router(public_router)
+    if mcp_token:
+        app.state.console_token = mcp_token
+        app.include_router(console_router)
     if mcp_app is not None:
-        app.mount("/", mcp_app)
+        app.mount("/mcp", mcp_app)
+    web_dist = _resolve_web_dist()
+    if mcp_token and web_dist is not None:
+        assets_dir = web_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        web_root = web_dist.resolve()
+
+        @app.get("/{full_path:path}")
+        async def spa(full_path: str):
+            reserved = ("api", "mcp", "health", "status")
+            prefixes = tuple(f"{name}/" for name in reserved)
+            if full_path in reserved or full_path.startswith(prefixes):
+                raise HTTPException(status_code=404, detail="not found")
+            if full_path:
+                candidate = (web_dist / full_path).resolve()
+                if candidate.is_file() and str(candidate).startswith(str(web_root)):
+                    return FileResponse(candidate)
+            index = web_dist / "index.html"
+            if not index.is_file():
+                raise HTTPException(status_code=404, detail="not found")
+            return FileResponse(index)
+
     return app
 
 

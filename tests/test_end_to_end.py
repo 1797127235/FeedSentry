@@ -115,7 +115,7 @@ async def test_mcp_add_feed_is_silent_then_new_item_is_delivered_once(
         headers={"Authorization": "Bearer secret"},
     )
     async with app.router.lifespan_context(app), http:
-        async with streamable_http_client("http://localhost/mcp", http_client=http) as streams:
+        async with streamable_http_client("http://localhost/", http_client=http) as streams:
             async with ClientSession(streams[0], streams[1]) as session:
                 await session.initialize()
                 result = await session.call_tool("add_feed", {"url": "https://example.com/feed"})

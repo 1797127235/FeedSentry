@@ -26,7 +26,6 @@ class AppriseConfig(BaseModel):
 
 class TelegramConfig(BaseModel):
     model_config = ConfigDict(coerce_numbers_to_str=True)
-
     bot_token: str
     chat_id: str
 
