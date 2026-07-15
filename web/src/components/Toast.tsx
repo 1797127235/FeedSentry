@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type ToastMessage = {
   kind: "success" | "error";
@@ -12,13 +12,16 @@ type ToastProps = {
 };
 
 export function Toast({ message, onClose, durationMs = 3200 }: ToastProps) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!message) {
       return;
     }
-    const timer = window.setTimeout(onClose, durationMs);
+    const timer = window.setTimeout(() => onCloseRef.current(), durationMs);
     return () => window.clearTimeout(timer);
-  }, [message, onClose, durationMs]);
+  }, [message, durationMs]);
 
   if (!message) {
     return null;

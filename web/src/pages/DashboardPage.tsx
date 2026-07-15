@@ -110,7 +110,7 @@ export function DashboardPage() {
         <div className="panel-header">
           <h2 className="panel-title">异常源</h2>
           <span className="panel-meta">
-            consecutive_failures &gt; 0 或存在 last_error
+            连续失败 &gt; 0 或存在最近错误
           </span>
         </div>
         {loading && !status ? (
