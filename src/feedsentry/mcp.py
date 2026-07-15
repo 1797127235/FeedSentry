@@ -74,7 +74,7 @@ def create_mcp_app(
 ) -> Starlette:
     server = FastMCP(
         "FeedSentry",
-        streamable_http_path="/mcp",
+        streamable_http_path="/",
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(allowed_hosts=allowed_hosts or []),

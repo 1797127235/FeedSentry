@@ -201,3 +201,18 @@ async def test_missing_nested_control_service_returns_503() -> None:
         response = await client.get("/api/sources", headers=auth())
     assert response.status_code == 503
     assert "sources" in response.json()["detail"]
+
+
+async def test_console_routes_absent_without_token(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("FEEDSENTRY_MCP_TOKEN", raising=False)
+    from feedsentry.app import create_app
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("placeholder: true\n", encoding="utf-8")
+    app = create_app(config_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        api_status = await client.get("/api/status")
+        live = await client.get("/health/live")
+    assert api_status.status_code == 404
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
