@@ -77,3 +77,135 @@ export async function apiJson<T>(
   }
   return (await response.json()) as T;
 }
+
+export type SourceView = {
+  id: string;
+  kind: string;
+  feed_url: string;
+  enabled: boolean;
+  title: string | null;
+  page_url: string | null;
+  route: string | null;
+  initialized_at: string | null;
+  last_success_at: string | null;
+  consecutive_failures: number;
+  next_check_at: string | null;
+  last_error: string | null;
+};
+
+export type SystemStatus = {
+  sources: number;
+  enabled_sources: number;
+  pending_events: number;
+  failed_events: number;
+  config_error: string | null;
+  source_statuses: SourceView[];
+  last_tick_at: string | null;
+  status_counts: Record<string, number>;
+};
+
+export type CandidateView = {
+  candidate_id: string;
+  title: string;
+  page_url: string;
+  feed_url: string;
+};
+
+export type AddSourceResult = {
+  source: SourceView;
+  created: boolean;
+  baseline_initialized: boolean;
+};
+
+export type SourcesResponse = {
+  sources: SourceView[];
+};
+
+export type DiscoverResponse = {
+  candidates: CandidateView[];
+};
+
+export type CheckSourceResponse = {
+  created_events: number;
+};
+
+export type ChangedResponse = {
+  changed: boolean;
+};
+
+export type RemovedResponse = {
+  removed: boolean;
+};
+
+export async function getStatus(): Promise<SystemStatus> {
+  return apiJson<SystemStatus>("/api/status");
+}
+
+export async function listSources(): Promise<SourcesResponse> {
+  return apiJson<SourcesResponse>("/api/sources");
+}
+
+export async function setSourceEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<ChangedResponse> {
+  return apiJson<ChangedResponse>(
+    `/api/sources/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    },
+  );
+}
+
+export async function removeSource(id: string): Promise<RemovedResponse> {
+  return apiJson<RemovedResponse>(
+    `/api/sources/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function checkSource(id: string): Promise<CheckSourceResponse> {
+  return apiJson<CheckSourceResponse>(
+    `/api/sources/${encodeURIComponent(id)}/check`,
+    { method: "POST" },
+  );
+}
+
+export async function addFeed(url: string): Promise<AddSourceResult> {
+  return apiJson<AddSourceResult>("/api/feeds", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+export async function discoverFeeds(
+  pageUrl: string,
+): Promise<DiscoverResponse> {
+  return apiJson<DiscoverResponse>("/api/feeds/discover", {
+    method: "POST",
+    body: JSON.stringify({ page_url: pageUrl }),
+  });
+}
+
+export async function subscribeFeed(
+  candidateId: string,
+): Promise<AddSourceResult> {
+  return apiJson<AddSourceResult>("/api/feeds/subscribe", {
+    method: "POST",
+    body: JSON.stringify({ candidate_id: candidateId }),
+  });
+}
+
+export function errorDetail(err: unknown, fallback = "操作失败"): string {
+  if (err instanceof ApiError) {
+    return err.detail;
+  }
+  if (err instanceof TypeError) {
+    return "无法连接后端，请确认服务已启动";
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}

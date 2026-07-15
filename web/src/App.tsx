@@ -2,8 +2,11 @@ import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Shell } from "./layout/Shell";
+import { AddSourcePage } from "./pages/AddSourcePage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { SourcesPage } from "./pages/SourcesPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -24,27 +27,9 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route
-          index
-          element={
-            <PlaceholderPage
-              title="概览"
-              description="系统健康、积压与调度摘要"
-            />
-          }
-        />
-        <Route
-          path="sources"
-          element={
-            <PlaceholderPage title="源" description="信息源列表与健康状态" />
-          }
-        />
-        <Route
-          path="sources/add"
-          element={
-            <PlaceholderPage title="添加源" description="直接 RSS 或页面发现" />
-          }
-        />
+        <Route index element={<DashboardPage />} />
+        <Route path="sources" element={<SourcesPage />} />
+        <Route path="sources/add" element={<AddSourcePage />} />
         <Route
           path="events"
           element={
