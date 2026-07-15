@@ -108,3 +108,11 @@ schema，必须先明确是新库重建还是提供升级路径。
 - Compose 挂载可写的 `config/` 目录，不要把单个配置文件作为只读 bind mount。
 - 来源立即检查与 Scheduler 共用每来源锁；失败事件只能从已保存失败阶段恢复。
 - RSSHub Radar 使用配置实例的 `/api/radar/rules`，不复制路由规则到项目。
+
+## Web 运维控制台
+
+- 控制台是 MCP 的第二入口，不是第二套管线：HTTP `/api/*` 与 MCP 都只调用 Control Services。
+- 未设置 `FEEDSENTRY_MCP_TOKEN` 时不挂载 `/api/*` 与 SPA；公开 health/精简 status 与后台管线照常。
+- Docker 多阶段构建：Node 构建 `web/` → 复制到 `/app/web/dist`；运行时
+  `FEEDSENTRY_WEB_DIST=/app/web/dist`（`app.py` 亦支持该环境变量覆盖）。
+- 不要重新引入任务、监控器或任务级筛选/通知配置。
