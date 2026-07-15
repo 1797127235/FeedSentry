@@ -192,3 +192,12 @@ async def test_validation_error_returns_400() -> None:
             json={"url": "http://bad.example/feed"},
         )
     assert response.status_code == 400
+
+
+async def test_missing_nested_control_service_returns_503() -> None:
+    app = build_app("secret")
+    app.state.control_services = ControlServices(sources=None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/sources", headers=auth())
+    assert response.status_code == 503
+    assert "sources" in response.json()["detail"]

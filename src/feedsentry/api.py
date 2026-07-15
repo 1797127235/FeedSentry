@@ -44,6 +44,13 @@ def require_console_services(request: Request) -> ControlServices:
     return services
 
 
+def _require_service(service: Any, name: str) -> Any:
+    """Fail closed when a nested control service was never wired (mirrors MCP `_require`)."""
+    if service is None:
+        raise HTTPException(status_code=503, detail=f"{name} control service is unavailable")
+    return service
+
+
 def _map_control_error(exc: Exception) -> HTTPException:
     if isinstance(exc, LookupError):
         return HTTPException(status_code=404, detail=str(exc) or "not found")
@@ -94,14 +101,14 @@ async def status(request: Request) -> dict[str, object]:
 @console_router.get("/status")
 async def api_status(request: Request) -> Any:
     services = require_console_services(request)
-    result = await _call(services.status.get_status())
+    result = await _call(_require_service(services.status, "status").get_status())
     return serialize_public(result)
 
 
 @console_router.get("/sources")
 async def api_list_sources(request: Request) -> Any:
     services = require_console_services(request)
-    result = await _call(services.sources.list_sources())
+    result = await _call(_require_service(services.sources, "sources").list_sources())
     return {"sources": serialize_public(result)}
 
 
@@ -109,7 +116,7 @@ async def api_list_sources(request: Request) -> Any:
 async def api_get_filter(request: Request) -> Any:
     services = require_console_services(request)
     try:
-        goal = services.filter.get_goal()
+        goal = _require_service(services.filter, "filter").get_goal()
     except (LookupError, FeedValidationError, ValueError, RuntimeError) as exc:
         raise _map_control_error(exc) from exc
     return {"goal": goal}
@@ -127,8 +134,9 @@ async def api_list_events(
     services = require_console_services(request)
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    status_svc = _require_service(services.status, "status")
     items, next_cursor = await _call(
-        services.status.list_events(
+        status_svc.list_events(
             status=status,
             source_id=source_id,
             q=q,
@@ -142,75 +150,82 @@ async def api_list_events(
 @console_router.get("/events/failed")
 async def api_list_failed_events(request: Request) -> Any:
     services = require_console_services(request)
-    result = await _call(services.recovery.list_failed_events())
+    result = await _call(_require_service(services.recovery, "recovery").list_failed_events())
     return {"events": serialize_public(result)}
 
 
 @console_router.get("/events/{event_id}")
 async def api_get_event(request: Request, event_id: int) -> Any:
     services = require_console_services(request)
-    result = await _call(services.status.get_event(event_id))
+    result = await _call(_require_service(services.status, "status").get_event(event_id))
     return serialize_public(result)
 
 
 @console_router.post("/feeds/discover")
 async def api_discover_feeds(request: Request, body: DiscoverBody) -> Any:
     services = require_console_services(request)
-    result = await _call(services.sources.discover_feeds(body.page_url))
+    sources = _require_service(services.sources, "sources")
+    result = await _call(sources.discover_feeds(body.page_url))
     return {"candidates": serialize_public(result)}
 
 
 @console_router.post("/feeds/subscribe")
 async def api_subscribe_feed(request: Request, body: SubscribeBody) -> Any:
     services = require_console_services(request)
-    result = await _call(services.sources.subscribe_feed(body.candidate_id))
+    result = await _call(
+        _require_service(services.sources, "sources").subscribe_feed(body.candidate_id)
+    )
     return serialize_public(result)
 
 
 @console_router.post("/feeds")
 async def api_add_feed(request: Request, body: AddFeedBody) -> Any:
     services = require_console_services(request)
-    result = await _call(services.sources.add_feed(body.url))
+    result = await _call(_require_service(services.sources, "sources").add_feed(body.url))
     return serialize_public(result)
 
 
 @console_router.patch("/sources/{source_id}")
 async def api_set_source_enabled(request: Request, source_id: str, body: SetEnabledBody) -> Any:
     services = require_console_services(request)
-    changed = await _call(services.sources.set_enabled(source_id, body.enabled))
+    changed = await _call(
+        _require_service(services.sources, "sources").set_enabled(source_id, body.enabled)
+    )
     return {"changed": changed}
 
 
 @console_router.delete("/sources/{source_id}")
 async def api_remove_source(request: Request, source_id: str) -> Any:
     services = require_console_services(request)
-    removed = await _call(services.sources.remove(source_id))
+    removed = await _call(_require_service(services.sources, "sources").remove(source_id))
     return {"removed": removed}
 
 
 @console_router.post("/sources/{source_id}/check")
 async def api_check_source(request: Request, source_id: str) -> Any:
     services = require_console_services(request)
-    created = await _call(services.sources.check_now(source_id))
+    created = await _call(_require_service(services.sources, "sources").check_now(source_id))
     return {"created_events": created}
 
 
 @console_router.put("/filter")
 async def api_set_filter(request: Request, body: SetFilterBody) -> Any:
     services = require_console_services(request)
-    changed = await _call(services.filter.set_goal(body.goal))
+    changed = await _call(_require_service(services.filter, "filter").set_goal(body.goal))
     return {"changed": changed}
 
 
 @console_router.post("/events/{event_id}/retry")
 async def api_retry_event(request: Request, event_id: int) -> Any:
     services = require_console_services(request)
-    retried = await _call(services.recovery.retry_failed_event(event_id))
+    retried = await _call(
+        _require_service(services.recovery, "recovery").retry_failed_event(event_id)
+    )
     return {"retried": retried}
 
 
 @console_router.post("/destination/test")
 async def api_test_destination(request: Request) -> Any:
     services = require_console_services(request)
-    response = await _call(services.destination.test())
+    response = await _call(_require_service(services.destination, "destination").test())
     return {"response": response}
