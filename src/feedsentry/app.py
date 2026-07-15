@@ -191,10 +191,18 @@ def create_app(config_path: Path) -> FastAPI:
         assets_dir = web_dist / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        web_root = web_dist.resolve()
 
         @app.get("/{full_path:path}")
         async def spa(full_path: str):
-            del full_path
+            reserved = ("api", "mcp", "health", "status")
+            prefixes = tuple(f"{name}/" for name in reserved)
+            if full_path in reserved or full_path.startswith(prefixes):
+                raise HTTPException(status_code=404, detail="not found")
+            if full_path:
+                candidate = (web_dist / full_path).resolve()
+                if candidate.is_file() and str(candidate).startswith(str(web_root)):
+                    return FileResponse(candidate)
             index = web_dist / "index.html"
             if not index.is_file():
                 raise HTTPException(status_code=404, detail="not found")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -216,3 +217,77 @@ async def test_console_routes_absent_without_token(tmp_path, monkeypatch) -> Non
     assert api_status.status_code == 404
     assert live.status_code == 200
     assert live.json() == {"status": "ok"}
+
+
+def _write_runtime_config(tmp_path) -> Path:
+    from test_config import VALID_CONFIG
+
+    config_path = tmp_path / "config.yaml"
+    db_path = tmp_path / "data" / "feedsentry.db"
+    content = VALID_CONFIG.replace(
+        "path: ./data/test.db",
+        f"path: {db_path.as_posix()}",
+    ).replace(
+        "sources:\n"
+        "  - id: example\n"
+        "    kind: feed\n"
+        "    url: https://example.com/feed.xml\n"
+        "    enabled: true\n",
+        "sources: []\n",
+    )
+    config_path.write_text(content, encoding="utf-8")
+    return config_path
+
+
+async def test_create_app_with_token_auth_and_public_routes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FEEDSENTRY_MCP_TOKEN", "secret")
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    monkeypatch.delenv("FEEDSENTRY_WEB_DIST", raising=False)
+    from feedsentry.app import create_app
+
+    app = create_app(_write_runtime_config(tmp_path))
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            unauth = await client.get("/api/status")
+            authorized = await client.get("/api/status", headers=auth())
+            # Mounted MCP lives under /mcp (streamable path "/"); trailing slash hits the sub-app.
+            mcp = await client.post("/mcp/")
+            live = await client.get("/health/live")
+            public_status = await client.get("/status")
+    assert unauth.status_code == 401
+    assert authorized.status_code == 200
+    assert mcp.status_code == 401
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
+    assert public_status.status_code == 200
+    assert public_status.json()["sources"] == 0
+
+
+async def test_spa_serves_real_files_under_dist(tmp_path, monkeypatch) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>spa-index</html>", encoding="utf-8")
+    (dist / "favicon.svg").write_text("<svg id='icon'/>", encoding="utf-8")
+    assets = dist / "assets"
+    assets.mkdir()
+    (assets / "app.js").write_text("window.APP=1", encoding="utf-8")
+
+    monkeypatch.setenv("FEEDSENTRY_MCP_TOKEN", "secret")
+    monkeypatch.setenv("FEEDSENTRY_WEB_DIST", str(dist))
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    from feedsentry.app import create_app
+
+    app = create_app(_write_runtime_config(tmp_path))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        favicon = await client.get("/favicon.svg")
+        root = await client.get("/")
+        deep = await client.get("/sources")
+        asset = await client.get("/assets/app.js")
+        api = await client.get("/api/status")
+    assert favicon.status_code == 200
+    assert favicon.text == "<svg id='icon'/>"
+    assert "spa-index" in root.text
+    assert "spa-index" in deep.text
+    assert asset.status_code == 200
+    assert asset.text == "window.APP=1"
+    assert api.status_code == 401
