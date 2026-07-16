@@ -98,6 +98,19 @@ destination:
 
 也可以使用原生 Telegram。此时需要在 `integrations.telegram` 中配置 Bot Token 和 Chat ID，并将 `destination.kind` 设置为 `telegram`。密钥应使用环境变量占位符。
 
+也可以通过 NapCat / Lagrange 等 OneBot v11 协议端接入 QQ 机器人。在 NapCat WebUI 开启「网络配置 → HTTP 服务」（默认端口 3000），然后在 `integrations.qq` 配置服务地址，并将 `destination.kind` 设置为 `qq`：
+
+```yaml
+integrations:
+  qq:
+    base_url: ${NAPCAT_BASE_URL}
+    access_token: ${NAPCAT_TOKEN:-}
+    target_type: group          # private（私聊 user_id）或 group（群 group_id）
+    target_id: "123456789"
+```
+
+`access_token` 与 NapCat HTTP 服务里设置的 token 一致；未设 token 时留空。Token 必须通过 `${NAPCAT_TOKEN}` 环境变量提供，不要写入 `config.yaml`。FeedSentry 只通过 httpx 调用 `/send_private_msg` 或 `/send_group_msg`，不依赖 websocket。
+
 ## 信息源类型
 
 直接 RSS 或 Atom 源：

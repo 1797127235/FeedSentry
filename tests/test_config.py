@@ -198,11 +198,51 @@ def test_load_config_rejects_telegram_destination_without_integration(
         load_config(config_path)
 
 
+def test_load_config_supports_global_qq_destination(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    monkeypatch.setenv("NAPCAT_BASE_URL", "http://napcat:3000")
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        VALID_CONFIG.replace(
+            "  apprise:\n    base_url: http://apprise:8000",
+            "  apprise:\n    base_url: http://apprise:8000\n"
+            "  qq:\n"
+            "    base_url: ${NAPCAT_BASE_URL}\n"
+            "    access_token: ${NAPCAT_TOKEN:-}\n"
+            "    target_type: group\n"
+            "    target_id: 987654321",
+        ).replace("destination:\n  apprise_key: telegram", "destination:\n  kind: qq"),
+    )
+
+    config = load_config(config_path)
+
+    assert config.destination.kind == "qq"
+    assert config.integrations.qq is not None
+    assert str(config.integrations.qq.base_url) == "http://napcat:3000/"
+    assert config.integrations.qq.access_token is None
+    assert config.integrations.qq.target_type == "group"
+    assert config.integrations.qq.target_id == "987654321"
+
+
+def test_load_config_rejects_qq_destination_without_integration(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        VALID_CONFIG.replace("destination:\n  apprise_key: telegram", "destination:\n  kind: qq"),
+    )
+
+    with pytest.raises(ValidationError, match="integrations.qq"):
+        load_config(config_path)
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
         ({"kind": "apprise"}, "apprise_key"),
         ({"kind": "telegram", "apprise_key": "telegram"}, "apprise_key"),
+        ({"kind": "qq", "apprise_key": "telegram"}, "apprise_key"),
     ],
 )
 def test_destination_config_rejects_invalid_kind_and_key_combinations(kwargs, match) -> None:

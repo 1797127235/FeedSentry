@@ -456,6 +456,16 @@ class FakeTelegram:
         return "telegram_message_id=1"
 
 
+class FakeQQ:
+    def __init__(self) -> None:
+        self.destination_key = "qq:group:987"
+        self.calls: list[Notification] = []
+
+    async def notify(self, notification: Notification) -> str:
+        self.calls.append(notification)
+        return "qq_message_id=1"
+
+
 async def test_destination_service_sends_marked_apprise_test(config_manager) -> None:
     apprise = FakeApprise()
     service = DestinationService(config_manager, apprise, None)
@@ -481,3 +491,27 @@ async def test_destination_service_sends_marked_telegram_test(config_manager) ->
     assert result == "telegram_message_id=1"
     assert "FeedSentry TEST" in telegram.calls[0].title
     assert "FeedSentry TEST" in telegram.calls[0].summary
+
+
+async def test_destination_service_sends_marked_qq_test(config_manager) -> None:
+    qq = FakeQQ()
+    config_manager.current = config_manager.current.model_copy(
+        update={"destination": DestinationConfig(kind="qq")}
+    )
+    service = DestinationService(config_manager, FakeApprise(), None, qq)
+
+    result = await service.test()
+
+    assert result == "qq_message_id=1"
+    assert "FeedSentry TEST" in qq.calls[0].title
+    assert "FeedSentry TEST" in qq.calls[0].summary
+
+
+async def test_destination_service_raises_when_qq_not_configured(config_manager) -> None:
+    config_manager.current = config_manager.current.model_copy(
+        update={"destination": DestinationConfig(kind="qq")}
+    )
+    service = DestinationService(config_manager, FakeApprise(), None, None)
+
+    with pytest.raises(RuntimeError, match="qq destination is not configured"):
+        await service.test()

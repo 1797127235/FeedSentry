@@ -30,11 +30,20 @@ class TelegramConfig(BaseModel):
     chat_id: str
 
 
+class QQConfig(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    base_url: HttpUrl
+    access_token: str | None = None
+    target_type: Literal["private", "group"]
+    target_id: str
+
+
 class IntegrationsConfig(BaseModel):
     firecrawl: FirecrawlConfig
     apprise: AppriseConfig
     rsshub: RSSHubConfig | None = None
     telegram: TelegramConfig | None = None
+    qq: QQConfig | None = None
 
 
 class AIConfig(BaseModel):
@@ -48,15 +57,15 @@ class StorageConfig(BaseModel):
 
 
 class DestinationConfig(BaseModel):
-    kind: Literal["apprise", "telegram"] = "apprise"
+    kind: Literal["apprise", "telegram", "qq"] = "apprise"
     apprise_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]+$")
 
     @model_validator(mode="after")
     def validate_kind_fields(self) -> DestinationConfig:
         if self.kind == "apprise" and self.apprise_key is None:
             raise ValueError("apprise destinations require apprise_key")
-        if self.kind == "telegram" and "apprise_key" in self.model_fields_set:
-            raise ValueError("telegram destinations must not include apprise_key")
+        if self.kind in {"telegram", "qq"} and "apprise_key" in self.model_fields_set:
+            raise ValueError(f"{self.kind} destinations must not include apprise_key")
         return self
 
 
@@ -126,6 +135,8 @@ class AppConfig(BaseModel):
             raise ValueError("source URLs must be unique")
         if self.destination.kind == "telegram" and self.integrations.telegram is None:
             raise ValueError("telegram destinations require integrations.telegram")
+        if self.destination.kind == "qq" and self.integrations.qq is None:
+            raise ValueError("qq destinations require integrations.qq")
         return self
 
 

@@ -6,6 +6,11 @@ integrations:
     base_url: ${APPRISE_BASE_URL}
   rsshub:
     base_url: https://rsshub.antest.cc.cd
+  # qq:                                              # 可选：NapCat / Lagrange 等 OneBot v11 HTTP 服务
+  #   base_url: ${NAPCAT_BASE_URL}                   #   例如 http://host.docker.internal:3000
+  #   access_token: ${NAPCAT_TOKEN:-}                #   走环境变量，不写入 config.yaml
+  #   target_type: group                             #   private | group
+  #   target_id: "123456789"                         #   user_id 或 group_id
 ai:
   base_url: ${AI_BASE_URL}
   api_key: ${AI_API_KEY}

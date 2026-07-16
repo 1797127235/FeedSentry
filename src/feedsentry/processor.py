@@ -34,6 +34,12 @@ class Telegram(Protocol):
     async def notify(self, notification: Notification) -> str: ...
 
 
+class QQ(Protocol):
+    destination_key: str
+
+    async def notify(self, notification: Notification) -> str: ...
+
+
 class EventProcessor:
     def __init__(
         self,
@@ -43,6 +49,7 @@ class EventProcessor:
         apprise: Apprise,
         destination: str | DestinationConfig | DestinationProvider,
         telegram: Telegram | None = None,
+        qq: QQ | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.repository = repository
@@ -51,6 +58,7 @@ class EventProcessor:
         self.apprise = apprise
         self.destination = destination
         self.telegram = telegram
+        self.qq = qq
         self.clock = clock or (lambda: datetime.now(UTC))
 
     async def process_event(self, event_id: int) -> None:
@@ -171,6 +179,25 @@ class EventProcessor:
                 )
                 return
             response = await self.telegram.notify(
+                Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
+            )
+            await self.repository.mark_delivery_success(delivery.id, response)
+            await self.repository.transition_event(
+                bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
+            )
+            return
+        if isinstance(destination, DestinationConfig) and destination.kind == "qq":
+            if self.qq is None:
+                raise RuntimeError("qq destination is not configured")
+            delivery = await self.repository.create_delivery(
+                bundle.event.id, self.qq.destination_key
+            )
+            if delivery.status == "delivered":
+                await self.repository.transition_event(
+                    bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
+                )
+                return
+            response = await self.qq.notify(
                 Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
             )
             await self.repository.mark_delivery_success(delivery.id, response)

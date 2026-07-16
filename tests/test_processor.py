@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import pytest
 from conftest import FakeAIClient, FakeAppriseClient, FakeFirecrawlClient
 
-from feedsentry.domain import DecisionAction, EventStatus, ScreeningDecision
+from feedsentry.config import DestinationConfig
+from feedsentry.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
 from feedsentry.processor import EventProcessor
 
 
@@ -15,6 +16,19 @@ class ProcessorFixture:
     ai: FakeAIClient
     firecrawl: FakeFirecrawlClient
     apprise: FakeAppriseClient
+
+
+class FakeQQ:
+    def __init__(self, destination_key: str = "qq:group:987") -> None:
+        self.destination_key = destination_key
+        self.calls: list[Notification] = []
+        self.error: Exception | None = None
+
+    async def notify(self, notification: Notification) -> str:
+        self.calls.append(notification)
+        if self.error is not None:
+            raise self.error
+        return "qq_message_id=42"
 
 
 @pytest.fixture
@@ -181,3 +195,71 @@ async def test_delivery_reads_current_global_destination(
     await fixture.processor.process_event(fixture.event_id)
 
     assert fixture.apprise.notifications[0][0] == "updated-destination"
+
+
+async def test_delivery_delivers_via_qq_client(processor_fixture: ProcessorFixture) -> None:
+    fixture = processor_fixture
+    qq = FakeQQ()
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        DestinationConfig(kind="qq"),
+        qq=qq,
+    )
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    event = await fixture.repository.get_event(fixture.event_id)
+    assert event.status is EventStatus.DELIVERED
+    assert len(qq.calls) == 1
+    assert qq.calls[0].link == "https://example.com/release-v2"
+    deliveries = await fixture.repository.list_deliveries_for_event(fixture.event_id)
+    assert deliveries[0].apprise_key == "qq:group:987"
+    assert deliveries[0].status == "delivered"
+    assert deliveries[0].response_summary == "qq_message_id=42"
+
+
+async def test_qq_failure_retries_without_repeating_delivery_record(
+    processor_fixture: ProcessorFixture,
+) -> None:
+    fixture = processor_fixture
+    qq = FakeQQ()
+    qq.error = RuntimeError("napcat down")
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        DestinationConfig(kind="qq"),
+        qq=qq,
+    )
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    waiting = await fixture.repository.get_event(fixture.event_id)
+    assert waiting.status is EventStatus.RETRY_WAIT
+    assert waiting.resume_stage is EventStatus.DELIVERING
+    assert await fixture.repository.count_deliveries() == 1
+
+    qq.error = None
+    await fixture.repository.make_event_due(fixture.event_id)
+    await fixture.processor.process_event(fixture.event_id)
+
+    delivered = await fixture.repository.get_event(fixture.event_id)
+    assert delivered.status is EventStatus.DELIVERED
+    assert len(qq.calls) == 2
+    assert await fixture.repository.count_deliveries() == 1

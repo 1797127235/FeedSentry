@@ -33,6 +33,7 @@ from feedsentry.logging import configure_logging
 from feedsentry.mcp import ControlServices, create_mcp_app
 from feedsentry.polling import PollCoordinator
 from feedsentry.processor import EventProcessor
+from feedsentry.qq import QQNotifier
 from feedsentry.repository import Repository
 from feedsentry.rsshub import CandidateCodec, RSSHubClient
 from feedsentry.scheduler import Scheduler
@@ -104,6 +105,18 @@ def create_app(config_path: Path) -> FastAPI:
             if config.integrations.telegram is not None
             else None
         )
+        qq_config = config.integrations.qq
+        qq_client = (
+            QQNotifier(
+                http,
+                str(qq_config.base_url),
+                qq_config.access_token,
+                qq_config.target_type,
+                qq_config.target_id,
+            )
+            if qq_config is not None
+            else None
+        )
         ingestion = IngestionService(repository, feed_client)
         polling = PollCoordinator(repository, ingestion)
         config_store = ConfigStore(config_manager)
@@ -134,6 +147,7 @@ def create_app(config_path: Path) -> FastAPI:
             apprise_client,
             current_destination,
             telegram_client,
+            qq_client,
         )
         scheduler = Scheduler(config_manager, repository, polling, processor)
         control_services.sources = SourceService(
@@ -153,7 +167,7 @@ def create_app(config_path: Path) -> FastAPI:
         )
         control_services.recovery = RecoveryService(repository)
         control_services.destination = DestinationService(
-            config_manager, apprise_client, telegram_client
+            config_manager, apprise_client, telegram_client, qq_client
         )
         app.state.services = AppServices(
             config_manager,

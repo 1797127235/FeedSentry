@@ -33,6 +33,12 @@ class Telegram(Protocol):
     async def notify(self, notification: Notification) -> str: ...
 
 
+class QQ(Protocol):
+    destination_key: str
+
+    async def notify(self, notification: Notification) -> str: ...
+
+
 @dataclass(frozen=True)
 class SourceView:
     id: str
@@ -490,10 +496,12 @@ class DestinationService:
         manager: ConfigManager,
         apprise: Apprise,
         telegram: Telegram | None,
+        qq: QQ | None = None,
     ) -> None:
         self.manager = manager
         self.apprise = apprise
         self.telegram = telegram
+        self.qq = qq
 
     async def test(self) -> str:
         if self.manager.current is None:
@@ -505,6 +513,17 @@ class DestinationService:
             if self.telegram is None:
                 raise RuntimeError("telegram destination is not configured")
             return await self.telegram.notify(
+                Notification(
+                    title=title,
+                    summary=body,
+                    source_url="https://feedsentry.invalid/test",
+                    link="https://feedsentry.invalid/test",
+                )
+            )
+        if destination.kind == "qq":
+            if self.qq is None:
+                raise RuntimeError("qq destination is not configured")
+            return await self.qq.notify(
                 Notification(
                     title=title,
                     summary=body,
