@@ -2,9 +2,35 @@ from __future__ import annotations
 
 import pytest
 
-from feedsentry.database import create_database
-from feedsentry.feeds import FeedFetchResult
-from feedsentry.repository import Repository
+from feedsentry.clients.feeds import FeedFetchResult
+from feedsentry.core.database import create_database
+from feedsentry.core.repository import Repository
+
+VALID_CONFIG = """
+integrations:
+  firecrawl:
+    base_url: ${FIRECRAWL_URL}
+    api_key: ${FIRECRAWL_KEY:-}
+  apprise:
+    base_url: http://apprise:8000
+  rsshub:
+    base_url: https://rsshub.antest.cc.cd
+ai:
+  base_url: http://llm:8080/v1
+  api_key: secret-ai-key
+  model: test-model
+storage:
+  path: ./data/test.db
+filter:
+  goal: Important releases only
+sources:
+  - id: example
+    kind: feed
+    url: https://example.com/feed.xml
+    enabled: true
+destination:
+  apprise_key: telegram
+"""
 
 
 class FakeAIClient:

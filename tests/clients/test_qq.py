@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-from feedsentry.domain import Notification
-from feedsentry.qq import QQNotifier, render_qq_message
+from feedsentry.clients.qq import QQNotifier, render_qq_message
+from feedsentry.core.domain import Notification
 
 
 def make_notification(**changes: str) -> Notification:

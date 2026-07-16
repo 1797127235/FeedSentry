@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from feedsentry.rsshub import CandidateCodec, RadarMatcher, RSSHubClient, RSSHubUnavailable
+from feedsentry.clients.rsshub import CandidateCodec, RadarMatcher, RSSHubClient, RSSHubUnavailable
 
 RULES = {
     "bilibili.com": {

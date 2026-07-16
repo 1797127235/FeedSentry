@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlsplit
 import feedparser
 import httpx
 
-from feedsentry.feeds import NormalizedEntry, normalize_parsed_feed
+from feedsentry.clients.feeds import NormalizedEntry, normalize_parsed_feed
 
 
 class FeedValidationError(ValueError):

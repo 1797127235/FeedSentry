@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from feedsentry.feeds import FeedFetchResult, NormalizedEntry
-from feedsentry.ingestion import IngestionService
+from feedsentry.clients.feeds import FeedFetchResult, NormalizedEntry
+from feedsentry.pipeline.ingestion import IngestionService
 
 
 def entry(external_id: str) -> NormalizedEntry:

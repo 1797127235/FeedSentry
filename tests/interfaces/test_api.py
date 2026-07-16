@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from feedsentry.api import router
+from feedsentry.interfaces.api import router
 
 
 class FakeRepository:

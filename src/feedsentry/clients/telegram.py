@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from feedsentry.domain import Notification
+from feedsentry.core.domain import Notification
 
 MAX_MESSAGE_UTF16_UNITS = 4096
 ELLIPSIS = "…"

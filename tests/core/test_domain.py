@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from feedsentry.domain import (
+from feedsentry.core.domain import (
     DecisionAction,
     EventStatus,
     Notification,

@@ -29,6 +29,24 @@ RSSHub Radar discovery uses the configured instance's `/api/radar/rules`. Direct
 RSSHub sources have stable IDs; an RSSHub source stores its page URL and route while the
 runtime Feed URL is derived from the current RSSHub base URL.
 
+## Module layout
+
+```text
+feedsentry/
+├── app.py          composition root and entry point
+├── logging.py      JSON log formatting
+├── core/           domain.py, database.py, repository.py
+├── config/         models.py (schema + ConfigManager), store.py (atomic YAML writes)
+├── clients/        ai.py, feeds.py, feed_validation.py, rsshub.py,
+│                   firecrawl.py, apprise.py, telegram.py, qq.py
+├── pipeline/       ingestion.py, processor.py, polling.py, scheduler.py
+└── interfaces/     api.py, mcp.py, auth.py, control.py, serialize.py
+```
+
+Dependencies point downward: `interfaces` -> `pipeline`/`clients` -> `core`/`config`.
+`app.py` is the only module that wires all layers together. `tests/` mirrors this
+layout.
+
 ## Configuration
 
 `config.yaml` is the only source of operational intent. It contains global

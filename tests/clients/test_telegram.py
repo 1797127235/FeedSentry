@@ -7,8 +7,8 @@ import httpx
 import pytest
 import respx
 
-from feedsentry.domain import Notification
-from feedsentry.telegram import TelegramMessage, TelegramNotifier, render_telegram_message
+from feedsentry.clients.telegram import TelegramMessage, TelegramNotifier, render_telegram_message
+from feedsentry.core.domain import Notification
 
 
 def make_notification(**changes: str) -> Notification:

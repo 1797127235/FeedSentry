@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from feedsentry.domain import goal_hash
-from feedsentry.feeds import FeedClient
-from feedsentry.repository import Repository
+from feedsentry.clients.feeds import FeedClient
+from feedsentry.core.domain import goal_hash
+from feedsentry.core.repository import Repository
 
 _SOURCE_RETRY_MINUTES = (1, 5, 30, 120)
 _MAX_ERROR_LENGTH = 1_000

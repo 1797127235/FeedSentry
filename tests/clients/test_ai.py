@@ -3,8 +3,8 @@ import pytest
 import respx
 from pydantic import ValidationError
 
-from feedsentry.ai import FINAL_SYSTEM_PROMPT, SCREEN_SYSTEM_PROMPT, AIClient
-from feedsentry.domain import DecisionAction
+from feedsentry.clients.ai import FINAL_SYSTEM_PROMPT, SCREEN_SYSTEM_PROMPT, AIClient
+from feedsentry.core.domain import DecisionAction
 
 
 @respx.mock

@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from feedsentry.config import DirectSourceConfig
-from feedsentry.polling import PollCoordinator
+from feedsentry.config.models import DirectSourceConfig
+from feedsentry.pipeline.polling import PollCoordinator
 
 
 class FakeRepository:

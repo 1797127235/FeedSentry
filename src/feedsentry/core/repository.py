@@ -10,8 +10,8 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from feedsentry.database import DeliveryRow, EntryRow, EventRow, FeedStateRow, ScrapeCacheRow
-from feedsentry.domain import EventStatus, assert_transition, next_retry_at
+from feedsentry.core.database import DeliveryRow, EntryRow, EventRow, FeedStateRow, ScrapeCacheRow
+from feedsentry.core.domain import EventStatus, assert_transition, next_retry_at
 
 
 @dataclass(frozen=True)

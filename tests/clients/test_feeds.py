@@ -1,7 +1,7 @@
 import httpx
 import respx
 
-from feedsentry.feeds import FeedClient, normalize_feed
+from feedsentry.clients.feeds import FeedClient, normalize_feed
 
 RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
 <item><guid>one</guid><title>Release 1</title><link>https://example.com/one</link>

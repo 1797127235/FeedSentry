@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from feedsentry.config import ConfigManager, SourceConfig, load_config
+from feedsentry.config.models import ConfigManager, SourceConfig, load_config
 
 
 class ConfigStore:

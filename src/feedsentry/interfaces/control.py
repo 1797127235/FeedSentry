@@ -8,17 +8,17 @@ from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from feedsentry.config import (
+from feedsentry.clients.feed_validation import FeedValidator, ValidatedFeed
+from feedsentry.clients.rsshub import CandidateCodec, RadarMatcher, RSSHubClient
+from feedsentry.config.models import (
     ConfigManager,
     DirectSourceConfig,
     RSSHubSourceConfig,
     SourceConfig,
 )
-from feedsentry.config_store import ConfigStore
-from feedsentry.domain import Notification
-from feedsentry.feed_validation import FeedValidator, ValidatedFeed
-from feedsentry.repository import Repository
-from feedsentry.rsshub import CandidateCodec, RadarMatcher, RSSHubClient
+from feedsentry.config.store import ConfigStore
+from feedsentry.core.domain import Notification
+from feedsentry.core.repository import Repository
 
 
 class Polling(Protocol):

@@ -5,9 +5,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
-from feedsentry.config import DestinationConfig
-from feedsentry.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
-from feedsentry.repository import EventBundle, Repository
+from feedsentry.config.models import DestinationConfig
+from feedsentry.core.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
+from feedsentry.core.repository import EventBundle, Repository
 
 
 class AI(Protocol):

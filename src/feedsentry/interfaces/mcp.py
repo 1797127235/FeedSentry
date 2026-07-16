@@ -12,8 +12,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from feedsentry.auth import BearerTokenMiddleware
-from feedsentry.serialize import serialize_public
+from feedsentry.interfaces.auth import BearerTokenMiddleware
+from feedsentry.interfaces.serialize import serialize_public
 
 # Re-export for callers that imported BearerTokenMiddleware from mcp.
 __all__ = [

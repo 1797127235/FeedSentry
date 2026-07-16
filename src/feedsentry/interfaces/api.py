@@ -5,10 +5,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from feedsentry.auth import require_bearer
-from feedsentry.feed_validation import FeedValidationError
-from feedsentry.mcp import ControlServices
-from feedsentry.serialize import serialize_public
+from feedsentry.clients.feed_validation import FeedValidationError
+from feedsentry.interfaces.auth import require_bearer
+from feedsentry.interfaces.mcp import ControlServices
+from feedsentry.interfaces.serialize import serialize_public
 
 public_router = APIRouter()
 console_router = APIRouter(prefix="/api", dependencies=[Depends(require_bearer)])

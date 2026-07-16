@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy import insert
 from sqlalchemy.exc import IntegrityError
 
-from feedsentry.database import DeliveryRow, EventRow, create_database
-from feedsentry.domain import EventStatus
-from feedsentry.repository import Repository
+from feedsentry.core.database import DeliveryRow, EventRow, create_database
+from feedsentry.core.domain import EventStatus
+from feedsentry.core.repository import Repository
 
 
 @pytest.fixture

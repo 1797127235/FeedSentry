@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import pytest
 from conftest import FakeAIClient, FakeAppriseClient, FakeFirecrawlClient
 
-from feedsentry.config import DestinationConfig
-from feedsentry.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
-from feedsentry.processor import EventProcessor
+from feedsentry.config.models import DestinationConfig
+from feedsentry.core.domain import DecisionAction, EventStatus, Notification, ScreeningDecision
+from feedsentry.pipeline.processor import EventProcessor
 
 
 @dataclass

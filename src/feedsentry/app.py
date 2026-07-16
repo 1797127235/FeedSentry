@@ -12,32 +12,32 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from feedsentry.ai import AIClient
-from feedsentry.api import console_router, public_router
-from feedsentry.apprise import AppriseClient
-from feedsentry.config import ConfigManager
-from feedsentry.config_store import ConfigStore
-from feedsentry.control import (
+from feedsentry.clients.ai import AIClient
+from feedsentry.clients.apprise import AppriseClient
+from feedsentry.clients.feed_validation import FeedValidator
+from feedsentry.clients.feeds import FeedClient
+from feedsentry.clients.firecrawl import FirecrawlClient
+from feedsentry.clients.qq import QQNotifier
+from feedsentry.clients.rsshub import CandidateCodec, RSSHubClient
+from feedsentry.clients.telegram import TelegramNotifier
+from feedsentry.config.models import ConfigManager
+from feedsentry.config.store import ConfigStore
+from feedsentry.core.database import Database, create_database
+from feedsentry.core.repository import Repository
+from feedsentry.interfaces.api import console_router, public_router
+from feedsentry.interfaces.control import (
     DestinationService,
     FilterService,
     RecoveryService,
     SourceService,
     StatusService,
 )
-from feedsentry.database import Database, create_database
-from feedsentry.feed_validation import FeedValidator
-from feedsentry.feeds import FeedClient
-from feedsentry.firecrawl import FirecrawlClient
-from feedsentry.ingestion import IngestionService
+from feedsentry.interfaces.mcp import ControlServices, create_mcp_app
 from feedsentry.logging import configure_logging
-from feedsentry.mcp import ControlServices, create_mcp_app
-from feedsentry.polling import PollCoordinator
-from feedsentry.processor import EventProcessor
-from feedsentry.qq import QQNotifier
-from feedsentry.repository import Repository
-from feedsentry.rsshub import CandidateCodec, RSSHubClient
-from feedsentry.scheduler import Scheduler
-from feedsentry.telegram import TelegramNotifier
+from feedsentry.pipeline.ingestion import IngestionService
+from feedsentry.pipeline.polling import PollCoordinator
+from feedsentry.pipeline.processor import EventProcessor
+from feedsentry.pipeline.scheduler import Scheduler
 
 
 @dataclass(frozen=True)

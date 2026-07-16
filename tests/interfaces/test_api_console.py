@@ -7,8 +7,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from feedsentry.api import console_router, public_router
-from feedsentry.mcp import ControlServices
+from feedsentry.interfaces.api import console_router, public_router
+from feedsentry.interfaces.mcp import ControlServices
 
 
 @dataclass
@@ -220,7 +220,7 @@ async def test_console_routes_absent_without_token(tmp_path, monkeypatch) -> Non
 
 
 def _write_runtime_config(tmp_path) -> Path:
-    from test_config import VALID_CONFIG
+    from conftest import VALID_CONFIG
 
     config_path = tmp_path / "config.yaml"
     db_path = tmp_path / "data" / "feedsentry.db"

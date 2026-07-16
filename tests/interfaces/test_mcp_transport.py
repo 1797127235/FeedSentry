@@ -7,7 +7,7 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from feedsentry.mcp import ControlServices, create_mcp_app
+from feedsentry.interfaces.mcp import ControlServices, create_mcp_app
 
 
 class FakeSources:

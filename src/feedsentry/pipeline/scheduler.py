@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
-from feedsentry.config import ConfigManager
+from feedsentry.config.models import ConfigManager
 
 logger = logging.getLogger(__name__)
 

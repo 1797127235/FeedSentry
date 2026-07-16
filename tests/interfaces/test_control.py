@@ -4,21 +4,21 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from test_config import VALID_CONFIG
+from conftest import VALID_CONFIG
 
-from feedsentry.config import ConfigManager, DestinationConfig
-from feedsentry.config_store import ConfigStore
-from feedsentry.control import (
+from feedsentry.clients.feed_validation import ValidatedFeed
+from feedsentry.clients.feeds import NormalizedEntry
+from feedsentry.clients.rsshub import CandidateCodec
+from feedsentry.config.models import ConfigManager, DestinationConfig
+from feedsentry.config.store import ConfigStore
+from feedsentry.core.domain import EventStatus, Notification
+from feedsentry.interfaces.control import (
     DestinationService,
     FilterService,
     RecoveryService,
     SourceService,
     StatusService,
 )
-from feedsentry.domain import EventStatus, Notification
-from feedsentry.feed_validation import ValidatedFeed
-from feedsentry.feeds import NormalizedEntry
-from feedsentry.rsshub import CandidateCodec
 
 
 def normalized_entry(source_url: str) -> NormalizedEntry:

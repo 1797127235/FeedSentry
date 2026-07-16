@@ -23,6 +23,12 @@ uv run ruff format --check .
 新增行为必须有测试。先运行聚焦测试，再在提交前运行完整测试集。保持
 `src/feedsentry/` 与 `tests/` 的模块结构对应。
 
+代码按层分子包：`core/`（domain、database、repository）、`config/`（models、
+store）、`clients/`（ai、feeds、feed_validation、rsshub、firecrawl、apprise、
+telegram、qq）、`pipeline/`（ingestion、processor、polling、scheduler）、
+`interfaces/`（api、mcp、auth、control、serialize）。`app.py` 是组合根。
+新增模块放入对应子包，并在 `tests/` 下保持相同目录结构。
+
 ## 重要架构约束
 
 - `config.yaml` 是全局筛选规则、信息源列表和通知目标的唯一来源；SQLite

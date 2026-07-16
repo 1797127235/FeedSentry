@@ -1,35 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from conftest import VALID_CONFIG
 from pydantic import ValidationError
 
-from feedsentry.config import ConfigManager, DestinationConfig, load_config, redact_mapping
-
-VALID_CONFIG = """
-integrations:
-  firecrawl:
-    base_url: ${FIRECRAWL_URL}
-    api_key: ${FIRECRAWL_KEY:-}
-  apprise:
-    base_url: http://apprise:8000
-  rsshub:
-    base_url: https://rsshub.antest.cc.cd
-ai:
-  base_url: http://llm:8080/v1
-  api_key: secret-ai-key
-  model: test-model
-storage:
-  path: ./data/test.db
-filter:
-  goal: Important releases only
-sources:
-  - id: example
-    kind: feed
-    url: https://example.com/feed.xml
-    enabled: true
-destination:
-  apprise_key: telegram
-"""
+from feedsentry.config.models import ConfigManager, DestinationConfig, load_config, redact_mapping
 
 
 def write_config(path, content: str = VALID_CONFIG) -> None:

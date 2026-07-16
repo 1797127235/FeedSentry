@@ -4,22 +4,21 @@ import json
 from datetime import UTC, datetime
 
 import httpx
-from conftest import FakeAIClient, FakeAppriseClient, FakeFirecrawlClient
+from conftest import VALID_CONFIG, FakeAIClient, FakeAppriseClient, FakeFirecrawlClient
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from test_config import VALID_CONFIG
 
-from feedsentry.config import ConfigManager
-from feedsentry.config_store import ConfigStore
-from feedsentry.control import SourceService, StatusService
-from feedsentry.domain import DecisionAction, EventStatus, ScreeningDecision
-from feedsentry.feed_validation import ValidatedFeed
-from feedsentry.feeds import FeedFetchResult, NormalizedEntry
-from feedsentry.ingestion import IngestionService
-from feedsentry.mcp import ControlServices, create_mcp_app
-from feedsentry.polling import PollCoordinator
-from feedsentry.processor import EventProcessor
-from feedsentry.rsshub import CandidateCodec
+from feedsentry.clients.feed_validation import ValidatedFeed
+from feedsentry.clients.feeds import FeedFetchResult, NormalizedEntry
+from feedsentry.clients.rsshub import CandidateCodec
+from feedsentry.config.models import ConfigManager
+from feedsentry.config.store import ConfigStore
+from feedsentry.core.domain import DecisionAction, EventStatus, ScreeningDecision
+from feedsentry.interfaces.control import SourceService, StatusService
+from feedsentry.interfaces.mcp import ControlServices, create_mcp_app
+from feedsentry.pipeline.ingestion import IngestionService
+from feedsentry.pipeline.polling import PollCoordinator
+from feedsentry.pipeline.processor import EventProcessor
 
 
 def entry(identifier: str) -> NormalizedEntry:

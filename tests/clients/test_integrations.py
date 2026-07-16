@@ -4,8 +4,8 @@ import httpx
 import pytest
 import respx
 
-from feedsentry.apprise import AppriseClient
-from feedsentry.firecrawl import FirecrawlClient
+from feedsentry.clients.apprise import AppriseClient
+from feedsentry.clients.firecrawl import FirecrawlClient
 
 
 @respx.mock

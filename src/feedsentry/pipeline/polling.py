@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
-from feedsentry.config import RSSHubConfig, SourceConfig
+from feedsentry.config.models import RSSHubConfig, SourceConfig
 
 
 class Repository(Protocol):

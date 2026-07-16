@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from feedsentry.domain import Notification
+from feedsentry.core.domain import Notification
 
 
 @dataclass(frozen=True)

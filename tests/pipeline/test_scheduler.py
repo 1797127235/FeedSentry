@@ -4,8 +4,8 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from feedsentry.config import DirectSourceConfig
-from feedsentry.scheduler import Scheduler
+from feedsentry.config.models import DirectSourceConfig
+from feedsentry.pipeline.scheduler import Scheduler
 
 
 @dataclass

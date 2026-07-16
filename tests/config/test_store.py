@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 import yaml
-from test_config import VALID_CONFIG
+from conftest import VALID_CONFIG
 
-from feedsentry.config import ConfigManager, DirectSourceConfig
-from feedsentry.config_store import ConfigStore
+from feedsentry.config.models import ConfigManager, DirectSourceConfig
+from feedsentry.config.store import ConfigStore
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ async def test_replace_failure_keeps_original_file(store, config_path, monkeypat
         del source, target
         raise OSError("disk failure")
 
-    monkeypatch.setattr("feedsentry.config_store.os.replace", fail_replace)
+    monkeypatch.setattr("feedsentry.config.store.os.replace", fail_replace)
     with pytest.raises(OSError, match="disk failure"):
         await store.set_filter_goal("New goal")
 

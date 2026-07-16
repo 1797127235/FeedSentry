@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from feedsentry.feed_validation import FeedValidationError, FeedValidator
+from feedsentry.clients.feed_validation import FeedValidationError, FeedValidator
 
 RSS = b"""<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Example</title>
