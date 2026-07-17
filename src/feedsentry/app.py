@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 
 from feedsentry.clients.ai import AIClient
 from feedsentry.clients.apprise import AppriseClient
@@ -199,7 +200,16 @@ def create_app(config_path: Path) -> FastAPI:
         app.state.console_token = mcp_token
         app.include_router(console_router)
     if mcp_app is not None:
-        app.mount("/mcp", mcp_app)
+        class MCPASGIWrapper:
+            def __init__(self, asgi_app):
+                self.asgi_app = asgi_app
+
+            async def __call__(self, scope, receive, send):
+                scope["path"] = "/"
+                await self.asgi_app(scope, receive, send)
+
+        app.router.routes.append(Route("/mcp", MCPASGIWrapper(mcp_app), methods=["POST"]))
+        app.mount("/mcp/", mcp_app)
     web_dist = _resolve_web_dist()
     if mcp_token and web_dist is not None:
         assets_dir = web_dist / "assets"
