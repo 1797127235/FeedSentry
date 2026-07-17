@@ -38,7 +38,7 @@ class EventStatus(StrEnum):
 
 class ScreeningDecision(BaseModel):
     action: DecisionAction
-    reason: str = Field(min_length=1)
+    reason: str = ""
     title: str | None = None
     summary: str | None = None
 
