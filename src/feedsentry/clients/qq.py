@@ -28,7 +28,7 @@ def render_qq_message(notification: Notification, target_type: str, target_id: s
     if article.scheme not in {"http", "https"} or not article.hostname:
         raise ValueError("link must be an HTTP(S) URL with a hostname")
 
-    source_label = source.hostname
+    source_label = notification.source_title or source.hostname
     parts = [
         f"来源：{source_label}",
         notification.title,

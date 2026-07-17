@@ -201,6 +201,49 @@ async def test_feed_failure_increments_failures_and_preserves_validators(
     assert state.last_error == "timeout"
 
 
+async def test_feed_success_stores_title_and_keeps_it_when_absent(
+    repository: Repository,
+) -> None:
+    now = datetime(2026, 7, 11, tzinfo=UTC)
+    await repository.record_feed_success(
+        "https://example.com/feed",
+        etag=None,
+        last_modified=None,
+        checked_at=now,
+        next_check_at=now,
+        title="Example Feed",
+    )
+
+    state = await repository.get_feed_state("https://example.com/feed")
+    assert state is not None
+    assert state.title == "Example Feed"
+
+    await repository.record_feed_success(
+        "https://example.com/feed",
+        etag=None,
+        last_modified=None,
+        checked_at=now,
+        next_check_at=now,
+    )
+
+    state = await repository.get_feed_state("https://example.com/feed")
+    assert state is not None
+    assert state.title == "Example Feed"
+
+    await repository.record_feed_success(
+        "https://example.com/feed",
+        etag=None,
+        last_modified=None,
+        checked_at=now,
+        next_check_at=now,
+        title="Renamed Feed",
+    )
+
+    state = await repository.get_feed_state("https://example.com/feed")
+    assert state is not None
+    assert state.title == "Renamed Feed"
+
+
 async def test_upsert_entry_returns_original_first_seen_at(repository: Repository) -> None:
     first = await repository.upsert_entry(
         source_url="https://example.com/feed",

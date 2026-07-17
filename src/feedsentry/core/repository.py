@@ -32,6 +32,7 @@ class EntryRecord:
 @dataclass(frozen=True)
 class FeedStateRecord:
     source_url: str
+    title: str | None
     etag: str | None
     last_modified: str | None
     initialized_at: datetime | None
@@ -193,6 +194,7 @@ class Repository:
             return None
         return FeedStateRecord(
             source_url=row.source_url,
+            title=row.title,
             etag=row.etag,
             last_modified=row.last_modified,
             initialized_at=row.initialized_at,
@@ -208,6 +210,7 @@ class Repository:
             return [
                 FeedStateRecord(
                     source_url=row.source_url,
+                    title=row.title,
                     etag=row.etag,
                     last_modified=row.last_modified,
                     initialized_at=row.initialized_at,
@@ -227,9 +230,11 @@ class Repository:
         last_modified: str | None,
         checked_at: datetime,
         next_check_at: datetime,
+        title: str | None = None,
     ) -> None:
         statement = insert(FeedStateRow).values(
             source_url=source_url,
+            title=title,
             etag=etag,
             last_modified=last_modified,
             last_success_at=checked_at,
@@ -240,6 +245,7 @@ class Repository:
         statement = statement.on_conflict_do_update(
             index_elements=("source_url",),
             set_={
+                "title": func.coalesce(statement.excluded.title, FeedStateRow.title),
                 "etag": statement.excluded.etag,
                 "last_modified": statement.excluded.last_modified,
                 "last_success_at": statement.excluded.last_success_at,

@@ -61,6 +61,29 @@ def test_render_qq_message_rejects_source_without_hostname() -> None:
         render_qq_message(make_notification(source_url="https:///feed.xml"), "private", "1")
 
 
+def test_render_qq_message_prefers_feed_title_over_hostname() -> None:
+    notification = Notification(
+        title="Release available",
+        summary="Version 1.0 is ready.",
+        source_url="http://host.docker.internal:1200/feed",
+        link="https://example.com/releases/1.0",
+        source_title="示例订阅",
+    )
+
+    message = render_qq_message(notification, "private", "1")
+
+    text = message.segments[0]["data"]["text"]
+    assert str(text).startswith("来源：示例订阅\n\n")
+    assert "host.docker.internal" not in str(text)
+
+
+def test_render_qq_message_falls_back_to_hostname_without_feed_title() -> None:
+    message = render_qq_message(make_notification(), "private", "1")
+
+    text = message.segments[0]["data"]["text"]
+    assert str(text).startswith("来源：example.com\n\n")
+
+
 def test_qq_notifier_destination_key_distinguishes_target_types() -> None:
     private = QQNotifier(httpx.AsyncClient(), "http://napcat:3000", None, "private", "100")
     group = QQNotifier(httpx.AsyncClient(), "http://napcat:3000", None, "group", "200")

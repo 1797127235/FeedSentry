@@ -14,6 +14,7 @@ class Notification:
     summary: str
     source_url: str
     link: str
+    source_title: str | None = None
 
 
 class DecisionAction(StrEnum):

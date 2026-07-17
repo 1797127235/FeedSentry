@@ -231,6 +231,14 @@ async def test_manage_and_check_source(source_service) -> None:
     assert await source_service.remove(added.source.id) is True
 
 
+async def test_list_sources_shows_persisted_feed_title(source_service) -> None:
+    added = await source_service.add_feed("https://news.example/feed.xml")
+
+    sources = {source.id: source for source in await source_service.list_sources()}
+
+    assert sources[added.source.id].title == "Example Feed"
+
+
 async def test_filter_service_reads_and_updates_goal(config_manager) -> None:
     service = FilterService(config_manager, ConfigStore(config_manager))
     assert service.get_goal() == "Important releases only"

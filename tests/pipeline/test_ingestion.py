@@ -37,6 +37,20 @@ async def test_first_fetch_creates_baseline_without_events(repository, fake_feed
     assert state.etag == "etag"
 
 
+async def test_fetch_persists_feed_title(repository, fake_feed_client) -> None:
+    fake_feed_client.result = FeedFetchResult(
+        False, "etag", None, (entry("old"),), title="Example Feed"
+    )
+
+    await IngestionService(repository, fake_feed_client).poll_source(
+        "https://example.com/feed", "Important releases"
+    )
+
+    state = await repository.get_feed_state("https://example.com/feed")
+    assert state is not None
+    assert state.title == "Example Feed"
+
+
 async def test_later_fetch_creates_one_event_per_new_entry(repository, fake_feed_client) -> None:
     service = IngestionService(repository, fake_feed_client)
     fake_feed_client.result = FeedFetchResult(False, "e1", None, (entry("old"),))

@@ -70,5 +70,6 @@ class IngestionService:
             last_modified=result.last_modified,
             checked_at=now,
             next_check_at=next_check_at,
+            title=result.title,
         )
         return created

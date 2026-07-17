@@ -244,6 +244,7 @@ class SourceService:
             last_modified=validated.last_modified,
             checked_at=now,
             next_check_at=now,
+            title=validated.title or None,
         )
         created = await self.store.add_source(source)
         return AddSourceResult(
@@ -281,7 +282,7 @@ class SourceService:
             kind=source.kind,
             feed_url=self._feed_url(source),
             enabled=source.enabled,
-            title=title,
+            title=title or (state.title if state else None),
             page_url=str(source.page_url) if source.kind == "rsshub" else None,
             route=source.route if source.kind == "rsshub" else None,
             initialized_at=state.initialized_at if state else None,
@@ -339,6 +340,7 @@ class StatusService:
                     kind=source.kind,
                     feed_url=url,
                     enabled=source.enabled,
+                    title=state.title if state else None,
                     initialized_at=state.initialized_at if state else None,
                     last_success_at=state.last_success_at if state else None,
                     consecutive_failures=state.consecutive_failures if state else 0,

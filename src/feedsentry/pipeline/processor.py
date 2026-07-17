@@ -167,6 +167,8 @@ class EventProcessor:
         destination = self.destination() if callable(self.destination) else self.destination
         title = bundle.event.output_title or bundle.entry.title
         summary = bundle.event.output_summary or bundle.entry.summary
+        feed_state = await self.repository.get_feed_state(bundle.entry.source_url)
+        source_title = feed_state.title if feed_state is not None else None
         if isinstance(destination, DestinationConfig) and destination.kind == "telegram":
             if self.telegram is None:
                 raise RuntimeError("telegram destination is not configured")
@@ -179,7 +181,9 @@ class EventProcessor:
                 )
                 return
             response = await self.telegram.notify(
-                Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
+                Notification(
+                    title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+                )
             )
             await self.repository.mark_delivery_success(delivery.id, response)
             await self.repository.transition_event(
@@ -198,7 +202,9 @@ class EventProcessor:
                 )
                 return
             response = await self.qq.notify(
-                Notification(title, summary, bundle.entry.source_url, bundle.entry.link)
+                Notification(
+                    title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+                )
             )
             await self.repository.mark_delivery_success(delivery.id, response)
             await self.repository.transition_event(

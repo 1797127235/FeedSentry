@@ -38,6 +38,7 @@ class FeedStateRow(Base):
     __tablename__ = "feed_state"
 
     source_url: Mapped[str] = mapped_column(primary_key=True)
+    title: Mapped[str | None]
     etag: Mapped[str | None]
     last_modified: Mapped[str | None]
     initialized_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

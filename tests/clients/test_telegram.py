@@ -52,6 +52,27 @@ def test_render_telegram_message_rejects_source_without_hostname() -> None:
         render_telegram_message(make_notification(source_url="https:///feed.xml"))
 
 
+def test_render_telegram_message_prefers_feed_title_over_hostname() -> None:
+    notification = Notification(
+        title="Release available",
+        summary="Version 1.0 is ready.",
+        source_url="http://host.docker.internal:1200/feed",
+        link="https://example.com/releases/1.0",
+        source_title="示例 <订阅>",
+    )
+
+    message = render_telegram_message(notification)
+
+    assert message.text.startswith("<i>来源：示例 &lt;订阅&gt;</i>\n\n")
+    assert "host.docker.internal" not in message.text
+
+
+def test_render_telegram_message_falls_back_to_hostname_without_feed_title() -> None:
+    message = render_telegram_message(make_notification())
+
+    assert message.text.startswith("<i>来源：example.com</i>\n\n")
+
+
 def test_render_telegram_message_truncates_long_summary_by_utf16_units() -> None:
     notification = make_notification(title="中文通知", summary="中文🙂" * 2000)
 

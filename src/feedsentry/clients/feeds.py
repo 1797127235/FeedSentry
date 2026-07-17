@@ -44,11 +44,19 @@ class FeedFetchResult:
     etag: str | None
     last_modified: str | None
     entries: tuple[NormalizedEntry, ...]
+    title: str | None = None
 
 
 def normalize_feed(content: bytes, source_url: str) -> tuple[NormalizedEntry, ...]:
     parsed = feedparser.parse(content)
     return normalize_parsed_feed(parsed, source_url)
+
+
+def normalize_parsed_feed_with_title(
+    parsed: Any, source_url: str
+) -> tuple[str | None, tuple[NormalizedEntry, ...]]:
+    title = _normalize_text(parsed.feed.get("title")) or None
+    return title, normalize_parsed_feed(parsed, source_url)
 
 
 def normalize_parsed_feed(parsed: Any, source_url: str) -> tuple[NormalizedEntry, ...]:
@@ -149,9 +157,13 @@ class FeedClient:
             return FeedFetchResult(True, etag, last_modified, ())
 
         response.raise_for_status()
+        title, entries = normalize_parsed_feed_with_title(
+            feedparser.parse(response.content), source_url
+        )
         return FeedFetchResult(
             not_modified=False,
             etag=response.headers.get("etag"),
             last_modified=response.headers.get("last-modified"),
-            entries=normalize_feed(response.content, source_url),
+            entries=entries,
+            title=title,
         )

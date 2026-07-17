@@ -27,7 +27,7 @@ def render_telegram_message(notification: Notification) -> TelegramMessage:
     if article.scheme not in {"http", "https"} or not article.hostname:
         raise ValueError("link must be an HTTP(S) URL with a hostname")
 
-    source_label = escape(source.hostname)
+    source_label = escape(notification.source_title or source.hostname or "")
     title = escape(notification.title)
     summary = escape(notification.summary)
     prefix = f"<i>来源：{source_label}</i>\n\n<b>{title}</b>\n"

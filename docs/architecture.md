@@ -94,7 +94,8 @@ decisions. Scraped content is cached by article URL.
 
 SQLite contains five tables:
 
-- `feed_state`: source validators, baseline, health, and next check time.
+- `feed_state`: source validators, baseline, health, next check time, and the
+  latest feed title used as the notification source label.
 - `entries`: normalized feed entries, unique by source URL and external ID.
 - `events`: one state-machine event per entry.
 - `scrape_cache`: Firecrawl Markdown keyed by article URL.

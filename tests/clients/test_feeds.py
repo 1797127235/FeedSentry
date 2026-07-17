@@ -28,3 +28,14 @@ async def test_fetch_sends_conditional_headers() -> None:
     assert result.not_modified is True
     assert route.calls[0].request.headers["if-none-match"] == '"abc"'
     assert route.calls[0].request.headers["if-modified-since"] == "yesterday"
+
+
+@respx.mock
+async def test_fetch_returns_feed_title() -> None:
+    respx.get("https://example.com/feed.xml").mock(return_value=httpx.Response(200, content=RSS))
+
+    async with httpx.AsyncClient() as http:
+        result = await FeedClient(http).fetch("https://example.com/feed.xml")
+
+    assert result.not_modified is False
+    assert result.title == "T"

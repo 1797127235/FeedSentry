@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 from conftest import FakeAIClient, FakeAppriseClient, FakeFirecrawlClient
@@ -225,6 +226,41 @@ async def test_delivery_delivers_via_qq_client(processor_fixture: ProcessorFixtu
     assert deliveries[0].apprise_key == "qq:group:987"
     assert deliveries[0].status == "delivered"
     assert deliveries[0].response_summary == "qq_message_id=42"
+
+
+async def test_delivery_includes_feed_title_in_notification(
+    processor_fixture: ProcessorFixture,
+) -> None:
+    fixture = processor_fixture
+    now = datetime.now(UTC)
+    await fixture.repository.record_feed_success(
+        "https://example.com/feed",
+        etag=None,
+        last_modified=None,
+        checked_at=now,
+        next_check_at=now,
+        title="Example Feed",
+    )
+    qq = FakeQQ()
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        DestinationConfig(kind="qq"),
+        qq=qq,
+    )
+    fixture.ai.screen_result = ScreeningDecision(
+        action=DecisionAction.ACCEPT,
+        reason="major release",
+        title="Release V2",
+        summary="Adds durable workflows",
+    )
+
+    await fixture.processor.process_event(fixture.event_id)
+
+    assert len(qq.calls) == 1
+    assert qq.calls[0].source_title == "Example Feed"
 
 
 async def test_qq_failure_retries_without_repeating_delivery_record(
