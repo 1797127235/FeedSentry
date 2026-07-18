@@ -90,3 +90,39 @@ async def test_replace_failure_keeps_original_file(store, config_path, monkeypat
     assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["filter"]["goal"] == (
         "Important releases only"
     )
+
+
+async def test_append_filter_goal_joins_with_newline(store) -> None:
+    assert await store.append_filter_goal("Security updates") is True
+    assert store.manager.current.filter.goal == "Important releases only\nSecurity updates"
+
+
+async def test_append_filter_goal_is_idempotent_for_existing_line(store) -> None:
+    assert await store.append_filter_goal("Important releases only") is False
+    assert store.manager.current.filter.goal == "Important releases only"
+
+
+async def test_append_filter_goal_idempotent_after_trim(store) -> None:
+    await store.set_filter_goal("Base goal\nAI news")
+    assert await store.append_filter_goal("  AI news  ") is False
+    assert store.manager.current.filter.goal == "Base goal\nAI news"
+
+
+async def test_append_filter_goal_trims_input(store) -> None:
+    assert await store.append_filter_goal("  extra words  ") is True
+    assert store.manager.current.filter.goal == "Important releases only\nextra words"
+
+
+async def test_append_filter_goal_rejects_blank(store, config_path) -> None:
+    original = config_path.read_bytes()
+    with pytest.raises(ValueError):
+        await store.append_filter_goal("   \n  ")
+    assert config_path.read_bytes() == original
+
+
+async def test_append_filter_goal_preserves_environment_placeholders(store, config_path) -> None:
+    await store.append_filter_goal("Another focus")
+
+    content = config_path.read_text(encoding="utf-8")
+    assert "${AI_API_KEY}" in content
+    assert "real-secret" not in content

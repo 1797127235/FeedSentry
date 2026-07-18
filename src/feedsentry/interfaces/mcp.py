@@ -136,6 +136,14 @@ def create_mcp_app(
         return {"changed": await _require(services.filter, "filter").set_goal(goal)}
 
     @server.tool()
+    async def append_filter_goal(text: str) -> Any:
+        """向全局 AI 筛选关注点追加一段内容（换行分隔），仅影响之后发现的新条目。
+
+        重复内容幂等无变化。
+        """
+        return {"changed": await _require(services.filter, "filter").append_goal(text)}
+
+    @server.tool()
     async def get_status() -> Any:
         """获取系统、信息源和事件的当前状态。"""
         return serialize_public(await _require(services.status, "status").get_status())

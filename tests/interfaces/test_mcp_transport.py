@@ -51,6 +51,7 @@ async def test_streamable_http_initializes_and_lists_tools() -> None:
         "check_source_now",
         "get_filter_goal",
         "set_filter_goal",
+        "append_filter_goal",
         "get_status",
         "list_failed_events",
         "retry_failed_event",

@@ -320,6 +320,13 @@ export async function setFilter(goal: string): Promise<ChangedResponse> {
   });
 }
 
+export async function appendFilter(text: string): Promise<ChangedResponse> {
+  return apiJson<ChangedResponse>("/api/filter/append", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function testDestination(): Promise<DestinationTestResponse> {
   return apiJson<DestinationTestResponse>("/api/destination/test", {
     method: "POST",

@@ -60,6 +60,21 @@ class ConfigStore:
 
         return await self._update(mutate)
 
+    async def append_filter_goal(self, text: str) -> bool:
+        normalized = text.strip()
+        if not normalized:
+            raise ValueError("appended filter goal must not be empty")
+
+        def mutate(data: dict[str, Any]) -> bool:
+            current = data.setdefault("filter", {}).get("goal") or ""
+            existing = [line.strip() for line in current.splitlines() if line.strip()]
+            if normalized in existing:
+                return False
+            data["filter"]["goal"] = f"{current}\n{normalized}" if current else normalized
+            return True
+
+        return await self._update(mutate)
+
     async def _update(self, mutate: Callable[[dict[str, Any]], bool]) -> bool:
         async with self._lock:
             data = self._read_mapping()

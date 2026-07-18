@@ -37,6 +37,10 @@ class SetFilterBody(BaseModel):
     goal: str = Field(min_length=1)
 
 
+class AppendFilterBody(BaseModel):
+    text: str = Field(min_length=1)
+
+
 def require_console_services(request: Request) -> ControlServices:
     services = getattr(request.app.state, "control_services", None)
     if services is None:
@@ -212,6 +216,13 @@ async def api_check_source(request: Request, source_id: str) -> Any:
 async def api_set_filter(request: Request, body: SetFilterBody) -> Any:
     services = require_console_services(request)
     changed = await _call(_require_service(services.filter, "filter").set_goal(body.goal))
+    return {"changed": changed}
+
+
+@console_router.post("/filter/append")
+async def api_append_filter(request: Request, body: AppendFilterBody) -> Any:
+    services = require_console_services(request)
+    changed = await _call(_require_service(services.filter, "filter").append_goal(body.text))
     return {"changed": changed}
 
 

@@ -70,6 +70,16 @@ class FakeFilter:
         self.goal = goal
         return True
 
+    async def append_goal(self, text: str) -> bool:
+        normalized = text.strip()
+        if not normalized:
+            raise ValueError("appended filter goal must not be empty")
+        lines = [line.strip() for line in self.goal.splitlines() if line.strip()]
+        if normalized in lines:
+            return False
+        self.goal = f"{self.goal}\n{normalized}" if self.goal else normalized
+        return True
+
 
 @dataclass
 class FakeRecovery:
@@ -182,6 +192,33 @@ async def test_list_events_and_filter() -> None:
     assert events.json() == {"items": [], "next_cursor": None}
     assert filt.json() == {"goal": "track AI"}
     assert put.json() == {"changed": True}
+
+
+async def test_append_filter_joins_and_idempotent() -> None:
+    app = build_app("secret")
+    services = app.state.control_services
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post(
+            "/api/filter/append",
+            headers=auth(),
+            json={"text": "new direction"},
+        )
+        duplicate = await client.post(
+            "/api/filter/append",
+            headers=auth(),
+            json={"text": "  new direction  "},
+        )
+        blank = await client.post(
+            "/api/filter/append",
+            headers=auth(),
+            json={"text": "   "},
+        )
+    assert first.status_code == 200
+    assert first.json() == {"changed": True}
+    assert duplicate.status_code == 200
+    assert duplicate.json() == {"changed": False}
+    assert blank.status_code == 400
+    assert services.filter.goal == "track AI\nnew direction"
 
 
 async def test_validation_error_returns_400() -> None:

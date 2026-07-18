@@ -246,6 +246,20 @@ async def test_filter_service_reads_and_updates_goal(config_manager) -> None:
     assert service.get_goal() == "Security releases only"
 
 
+async def test_filter_service_appends_goal(config_manager) -> None:
+    service = FilterService(config_manager, ConfigStore(config_manager))
+    assert await service.append_goal("Security updates") is True
+    assert service.get_goal() == "Important releases only\nSecurity updates"
+    assert await service.append_goal("Security updates") is False
+    assert service.get_goal() == "Important releases only\nSecurity updates"
+
+
+async def test_filter_service_append_rejects_blank(config_manager) -> None:
+    service = FilterService(config_manager, ConfigStore(config_manager))
+    with pytest.raises(ValueError):
+        await service.append_goal("   ")
+
+
 async def test_status_service_returns_source_health(config_manager, repository) -> None:
     await repository.record_feed_failure(
         "https://example.com/feed.xml",

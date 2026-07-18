@@ -311,6 +311,9 @@ class FilterService:
     async def set_goal(self, goal: str) -> bool:
         return await self.store.set_filter_goal(goal)
 
+    async def append_goal(self, text: str) -> bool:
+        return await self.store.append_filter_goal(text)
+
 
 class StatusService:
     def __init__(

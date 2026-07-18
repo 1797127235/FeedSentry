@@ -354,6 +354,7 @@ FeedSentry 暴露以下 13 个受控工具：
 | `check_source_now` | 立即检查指定信息源 |
 | `get_filter_goal` | 查看全局 AI 关注点 |
 | `set_filter_goal` | 修改未来新条目使用的全局 AI 关注点 |
+| `append_filter_goal` | 向全局 AI 关注点追加一段内容（换行分隔，幂等） |
 | `get_status` | 查看系统、来源和事件状态 |
 | `list_failed_events` | 列出最终失败的事件 |
 | `retry_failed_event` | 从记录的失败阶段恢复指定事件 |
