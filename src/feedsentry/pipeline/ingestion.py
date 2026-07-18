@@ -61,8 +61,10 @@ class IngestionService:
             created = 0
             for record in records:
                 if record.first_seen_at > state.initialized_at:
-                    await self.repository.create_event(record.id, goal, goal_hash(goal))
-                    created += 1
+                    _, event_created = await self.repository.create_event_with_result(
+                        record.id, goal, goal_hash(goal)
+                    )
+                    created += event_created
 
         await self.repository.record_feed_success(
             source_url,

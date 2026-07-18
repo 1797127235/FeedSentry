@@ -223,6 +223,47 @@ async def test_discover_and_subscribe_rsshub_candidate(source_service) -> None:
     assert result.source.route == "/bilibili/user/video/946974"
 
 
+async def test_subscribe_rejects_candidate_from_previous_rsshub_instance(
+    source_service, config_manager
+) -> None:
+    [candidate] = await source_service.discover_feeds("https://space.bilibili.com/946974")
+    content = config_manager.path.read_text(encoding="utf-8").replace(
+        "https://rsshub.antest.cc.cd", "https://rsshub.example.com"
+    )
+    config_manager.path.write_text(content, encoding="utf-8")
+    assert config_manager.reload_if_changed() is True
+
+    with pytest.raises(ValueError, match="no longer matches"):
+        await source_service.subscribe_feed(candidate.candidate_id)
+
+
+async def test_subscribe_rejects_rsshub_reload_during_validation(
+    source_service, config_manager
+) -> None:
+    [candidate] = await source_service.discover_feeds("https://space.bilibili.com/946974")
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingValidator(FakeValidator):
+        async def validate(self, url: str) -> ValidatedFeed:
+            started.set()
+            await release.wait()
+            return await super().validate(url)
+
+    source_service.validator = BlockingValidator()
+    subscription = asyncio.create_task(source_service.subscribe_feed(candidate.candidate_id))
+    await started.wait()
+    content = config_manager.path.read_text(encoding="utf-8").replace(
+        "https://rsshub.antest.cc.cd", "https://rsshub.example.com"
+    )
+    config_manager.path.write_text(content, encoding="utf-8")
+    assert config_manager.reload_if_changed() is True
+    release.set()
+
+    with pytest.raises(ValueError, match="no longer matches"):
+        await subscription
+
+
 async def test_manage_and_check_source(source_service) -> None:
     added = await source_service.add_feed("https://news.example/feed.xml")
     assert await source_service.set_enabled(added.source.id, False) is True

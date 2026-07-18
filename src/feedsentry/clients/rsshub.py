@@ -204,11 +204,14 @@ class RSSHubClient:
         if self._cache_is_fresh():
             return self._rules or {}
         try:
-            response = await self.http.get(f"{self.base_url}/api/radar/rules")
-            response.raise_for_status()
-            if len(response.content) > self.max_rules_bytes:
-                raise ValueError("RSSHub Radar rules response is too large")
-            payload = response.json()
+            async with self.http.stream("GET", f"{self.base_url}/api/radar/rules") as response:
+                response.raise_for_status()
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    if len(content) + len(chunk) > self.max_rules_bytes:
+                        raise ValueError("RSSHub Radar rules response is too large")
+                    content.extend(chunk)
+            payload = json.loads(content)
             if not isinstance(payload, dict):
                 raise ValueError("RSSHub Radar rules must be an object")
         except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:

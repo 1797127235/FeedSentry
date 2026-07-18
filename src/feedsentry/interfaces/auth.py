@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 
 from fastapi import HTTPException, Request
@@ -38,3 +39,49 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         if not verify_bearer(authorization, self.token):
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
+
+
+class ConsoleRequestLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(
+        self,
+        app,
+        *,
+        max_request_bytes: int = 1_000_000,
+        max_concurrent_requests: int = 10,
+    ) -> None:
+        super().__init__(app)
+        self.max_request_bytes = max_request_bytes
+        self.semaphore = asyncio.Semaphore(max_concurrent_requests)
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > self.max_request_bytes:
+                    return JSONResponse({"detail": "request too large"}, status_code=413)
+            except ValueError:
+                return JSONResponse({"detail": "invalid content length"}, status_code=400)
+        content = bytearray()
+        async for chunk in request.stream():
+            if len(content) + len(chunk) > self.max_request_bytes:
+                return JSONResponse({"detail": "request too large"}, status_code=413)
+            content.extend(chunk)
+        request._body = bytes(content)
+        async with self.semaphore:
+            return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+            "style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; "
+            "frame-ancestors 'none'; form-action 'self'"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response

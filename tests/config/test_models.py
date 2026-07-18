@@ -89,6 +89,15 @@ def test_load_config_rejects_old_monitor_shape(tmp_path, monkeypatch) -> None:
         load_config(config_path)
 
 
+def test_load_config_rejects_unknown_nested_fields(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path, VALID_CONFIG.replace("model: test-model", "modle: typo"))
+
+    with pytest.raises(ValidationError, match="modle"):
+        load_config(config_path)
+
+
 def test_load_config_resolves_rsshub_source(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
     config_path = tmp_path / "config.yaml"
@@ -283,3 +292,32 @@ def test_config_manager_does_not_expose_secrets_in_reload_errors(tmp_path, monke
     assert manager.current is original
     assert manager.last_error is not None
     assert "real-api-secret" not in manager.last_error
+
+
+def test_config_manager_runs_reload_hooks_before_publishing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path)
+    manager = ConfigManager(config_path)
+    original = manager.load_initial()
+    seen = []
+    manager.add_reload_hook(lambda previous, candidate: seen.append((previous, candidate)))
+    write_config(config_path, VALID_CONFIG.replace("test-model", "new-model"))
+
+    assert manager.reload_if_changed() is True
+    assert seen[0][0] is original
+    assert seen[0][1].ai.model == "new-model"
+    assert manager.current is seen[0][1]
+
+
+def test_config_manager_rejects_storage_path_hot_reload(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    config_path = tmp_path / "config.yaml"
+    write_config(config_path)
+    manager = ConfigManager(config_path)
+    original = manager.load_initial()
+    write_config(config_path, VALID_CONFIG.replace("./data/test.db", "./data/other.db"))
+
+    assert manager.reload_if_changed() is False
+    assert manager.current is original
+    assert manager.last_error == "storage.path change requires process restart"

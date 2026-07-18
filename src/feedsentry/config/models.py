@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import posixpath
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -13,25 +13,30 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 ENV_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 SECRET_KEYS = {"api_key", "password", "token", "secret"}
+STRICT_MODEL_CONFIG = ConfigDict(extra="forbid")
 
 
 class FirecrawlConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     base_url: HttpUrl
     api_key: str | None = None
 
 
 class AppriseConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     base_url: HttpUrl
 
 
 class TelegramConfig(BaseModel):
-    model_config = ConfigDict(coerce_numbers_to_str=True)
+    model_config = ConfigDict(coerce_numbers_to_str=True, extra="forbid")
     bot_token: str
     chat_id: str
 
 
 class QQConfig(BaseModel):
-    model_config = ConfigDict(coerce_numbers_to_str=True)
+    model_config = ConfigDict(coerce_numbers_to_str=True, extra="forbid")
     base_url: HttpUrl
     access_token: str | None = None
     target_type: Literal["private", "group"]
@@ -39,6 +44,8 @@ class QQConfig(BaseModel):
 
 
 class IntegrationsConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     firecrawl: FirecrawlConfig
     apprise: AppriseConfig
     rsshub: RSSHubConfig | None = None
@@ -47,16 +54,22 @@ class IntegrationsConfig(BaseModel):
 
 
 class AIConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     base_url: HttpUrl
     api_key: str
     model: str = Field(min_length=1)
 
 
 class StorageConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     path: Path
 
 
 class DestinationConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     kind: Literal["apprise", "telegram", "qq"] = "apprise"
     apprise_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]+$")
 
@@ -70,10 +83,14 @@ class DestinationConfig(BaseModel):
 
 
 class FilterConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     goal: str = Field(min_length=1)
 
 
 class RSSHubConfig(BaseModel):
+    model_config = STRICT_MODEL_CONFIG
+
     base_url: HttpUrl
 
 
@@ -180,6 +197,7 @@ class ConfigManager:
         self.current: AppConfig | None = None
         self.last_error: str | None = None
         self.mtime: int | None = None
+        self._reload_hooks: list[Callable[[AppConfig, AppConfig], None]] = []
 
     def load_initial(self) -> AppConfig:
         config = load_config(self.path)
@@ -187,6 +205,48 @@ class ConfigManager:
         self.last_error = None
         self.mtime = self.path.stat().st_mtime_ns
         return config
+
+    def add_reload_hook(self, hook: Callable[[AppConfig, AppConfig], None]) -> None:
+        self._reload_hooks.append(hook)
+
+    def validate_reload_candidate(self, candidate: AppConfig) -> None:
+        if self.current is None:
+            return
+        if candidate.storage.path.resolve() != self.current.storage.path.resolve():
+            raise ValueError("storage.path change requires process restart")
+
+    def reload_now(self) -> bool:
+        try:
+            mtime = self.path.stat().st_mtime_ns
+        except OSError:
+            self.last_error = "configuration reload failed"
+            return False
+
+        try:
+            config = load_config(self.path)
+            self.validate_reload_candidate(config)
+            current = self.current
+            if current is not None:
+                for hook in self._reload_hooks:
+                    hook(current, config)
+        except ValueError as exc:
+            message = str(exc)
+            self.last_error = (
+                message
+                if message == "storage.path change requires process restart"
+                else "configuration reload failed"
+            )
+            self.mtime = mtime
+            return False
+        except Exception:
+            self.last_error = "configuration reload failed"
+            self.mtime = mtime
+            return False
+
+        self.current = config
+        self.last_error = None
+        self.mtime = mtime
+        return True
 
     def reload_if_changed(self) -> bool:
         try:
@@ -198,14 +258,4 @@ class ConfigManager:
         if mtime == self.mtime:
             return False
 
-        try:
-            config = load_config(self.path)
-        except Exception:
-            self.last_error = "configuration reload failed"
-            self.mtime = mtime
-            return False
-
-        self.current = config
-        self.last_error = None
-        self.mtime = mtime
-        return True
+        return self.reload_now()

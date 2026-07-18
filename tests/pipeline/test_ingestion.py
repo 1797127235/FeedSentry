@@ -64,6 +64,19 @@ async def test_later_fetch_creates_one_event_per_new_entry(repository, fake_feed
     assert fake_feed_client.calls[1] == ("https://example.com/feed", "e1", None)
 
 
+async def test_repeated_new_entry_is_not_reported_as_new_event(
+    repository, fake_feed_client
+) -> None:
+    service = IngestionService(repository, fake_feed_client)
+    fake_feed_client.result = FeedFetchResult(False, "e1", None, (entry("old"),))
+    await service.poll_source("https://example.com/feed", "Important releases")
+    fake_feed_client.result = FeedFetchResult(False, "e2", None, (entry("new"),))
+
+    assert await service.poll_source("https://example.com/feed", "Important releases") == 1
+    assert await service.poll_source("https://example.com/feed", "Important releases") == 0
+    assert await repository.count_events() == 1
+
+
 async def test_not_modified_records_success_without_events(repository, fake_feed_client) -> None:
     service = IngestionService(repository, fake_feed_client)
     fake_feed_client.result = FeedFetchResult(False, "e1", "yesterday", (entry("old"),))

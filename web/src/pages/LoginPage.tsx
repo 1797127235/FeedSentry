@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth";
+import { useAuth } from "../auth-context";
 import { ApiError, clearToken, setToken } from "../api";
 
 export function LoginPage() {

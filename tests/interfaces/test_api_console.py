@@ -298,6 +298,63 @@ async def test_create_app_with_token_auth_and_public_routes(tmp_path, monkeypatc
     assert live.json() == {"status": "ok"}
     assert public_status.status_code == 200
     assert public_status.json()["sources"] == 0
+    assert public_status.headers["x-content-type-options"] == "nosniff"
+    assert public_status.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in public_status.headers["content-security-policy"]
+
+
+async def test_console_rejects_oversized_request_body(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FEEDSENTRY_MCP_TOKEN", "secret")
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    from feedsentry.app import create_app
+
+    app = create_app(_write_runtime_config(tmp_path))
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/filter/append",
+                headers=auth(),
+                content=b"x" * 1_000_001,
+            )
+
+    assert response.status_code == 413
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_create_app_rebinds_external_clients_after_config_reload(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FEEDSENTRY_MCP_TOKEN", "secret")
+    monkeypatch.setenv("FIRECRAWL_URL", "http://firecrawl:3002")
+    from feedsentry.app import create_app
+
+    config_path = _write_runtime_config(tmp_path)
+    app = create_app(config_path)
+    async with app.router.lifespan_context(app):
+        services = app.state.services
+        controls = app.state.control_services
+        previous_ai = services.processor.ai
+        previous_feed = services.ingestion.feed_client
+        content = config_path.read_text(encoding="utf-8")
+        content = content.replace("model: test-model", "model: reloaded-model")
+        content = content.replace("http://apprise:8000", "http://apprise-new:8000")
+        content = content.replace("https://rsshub.antest.cc.cd", "http://rsshub.internal:1200")
+        config_path.write_text(content, encoding="utf-8")
+
+        assert services.config_manager.reload_if_changed() is True
+
+        assert services.processor.ai is not previous_ai
+        assert services.processor.ai.model == "reloaded-model"
+        assert services.processor.apprise.base_url == "http://apprise-new:8000"
+        assert controls.destination.apprise is services.processor.apprise
+        assert services.ingestion.feed_client is not previous_feed
+        assert services.ingestion.feed_client.transport.allowed_private_origins == {
+            ("http", "rsshub.internal", 1200)
+        }
+        assert controls.sources.rsshub.base_url == "http://rsshub.internal:1200"
+        assert controls.sources.validator.transport.allowed_private_origins == {
+            ("http", "rsshub.internal", 1200)
+        }
 
 
 async def test_spa_serves_real_files_under_dist(tmp_path, monkeypatch) -> None:

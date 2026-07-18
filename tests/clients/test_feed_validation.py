@@ -14,13 +14,20 @@ ATOM_EMPTY = b"""<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom"><title>Empty</title><id>empty</id></feed>"""
 
 
+async def public_resolver(hostname: str, port: int) -> set[str]:
+    del hostname, port
+    return {"93.184.216.34"}
+
+
 @respx.mock
 async def test_validator_accepts_rss_and_returns_metadata() -> None:
     respx.get("https://example.com/feed.xml").mock(
         return_value=httpx.Response(200, content=RSS, headers={"etag": '"one"'})
     )
     async with httpx.AsyncClient() as http:
-        result = await FeedValidator(http).validate("https://example.com/feed.xml")
+        result = await FeedValidator(http, resolver=public_resolver).validate(
+            "https://example.com/feed.xml"
+        )
 
     assert result.canonical_url == "https://example.com/feed.xml"
     assert result.title == "Example"
@@ -35,7 +42,9 @@ async def test_validator_accepts_empty_atom_feed() -> None:
         return_value=httpx.Response(200, content=ATOM_EMPTY)
     )
     async with httpx.AsyncClient() as http:
-        result = await FeedValidator(http).validate("https://example.com/empty.xml")
+        result = await FeedValidator(http, resolver=public_resolver).validate(
+            "https://example.com/empty.xml"
+        )
     assert result.version == "atom10"
     assert result.entries == ()
 
@@ -48,7 +57,9 @@ async def test_validator_rejects_non_feed_content(content: bytes) -> None:
     )
     async with httpx.AsyncClient() as http:
         with pytest.raises(FeedValidationError, match="valid RSS or Atom"):
-            await FeedValidator(http).validate("https://example.com/not-feed")
+            await FeedValidator(http, resolver=public_resolver).validate(
+                "https://example.com/not-feed"
+            )
 
 
 @respx.mock
@@ -58,7 +69,9 @@ async def test_validator_rejects_oversized_feed() -> None:
     )
     async with httpx.AsyncClient() as http:
         with pytest.raises(FeedValidationError, match="too large"):
-            await FeedValidator(http, max_bytes=len(RSS)).validate("https://example.com/large.xml")
+            await FeedValidator(http, max_bytes=len(RSS), resolver=public_resolver).validate(
+                "https://example.com/large.xml"
+            )
 
 
 async def test_validator_rejects_loopback_url_without_request() -> None:
@@ -77,7 +90,9 @@ async def test_validator_rejects_redirect_to_loopback_before_following() -> None
     )
     async with httpx.AsyncClient() as http:
         with pytest.raises(FeedValidationError, match="not allowed"):
-            await FeedValidator(http).validate("https://example.com/redirect")
+            await FeedValidator(http, resolver=public_resolver).validate(
+                "https://example.com/redirect"
+            )
 
     assert first.called
     assert not private.called
@@ -89,7 +104,15 @@ async def test_validator_allows_configured_rsshub_host() -> None:
         return_value=httpx.Response(200, content=ATOM_EMPTY)
     )
     async with httpx.AsyncClient() as http:
-        result = await FeedValidator(http, allowed_private_hosts={"rsshub.internal"}).validate(
-            "http://rsshub.internal:1200/route"
-        )
+        result = await FeedValidator(
+            http, allowed_private_origins={"http://rsshub.internal:1200"}
+        ).validate("http://rsshub.internal:1200/route")
     assert result.version == "atom10"
+
+
+async def test_validator_private_origin_does_not_allow_other_ports() -> None:
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(FeedValidationError, match="not allowed"):
+            await FeedValidator(http, allowed_private_origins={"http://127.0.0.1:1200"}).validate(
+                "http://127.0.0.1:2375/containers/json"
+            )

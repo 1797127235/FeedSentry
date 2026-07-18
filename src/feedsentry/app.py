@@ -25,6 +25,7 @@ from feedsentry.config.store import ConfigStore
 from feedsentry.core.database import Database, create_database
 from feedsentry.core.repository import Repository
 from feedsentry.interfaces.api import console_router, public_router
+from feedsentry.interfaces.auth import ConsoleRequestLimitMiddleware, SecurityHeadersMiddleware
 from feedsentry.interfaces.control import (
     DestinationService,
     FilterService,
@@ -92,7 +93,12 @@ def create_app(config_path: Path) -> FastAPI:
         repository = Repository(database.session_factory)
         await repository.recover_in_progress()
         http = httpx.AsyncClient(timeout=20.0, follow_redirects=True)
-        feed_client = FeedClient(http)
+        allowed_private_origins = (
+            {str(config.integrations.rsshub.base_url)}
+            if config.integrations.rsshub is not None
+            else set()
+        )
+        feed_client = FeedClient(http, allowed_private_origins=allowed_private_origins)
         ai_client = AIClient(http, str(config.ai.base_url), config.ai.api_key, config.ai.model)
         firecrawl_client = FirecrawlClient(
             http, str(config.integrations.firecrawl.base_url), config.integrations.firecrawl.api_key
@@ -126,13 +132,7 @@ def create_app(config_path: Path) -> FastAPI:
             else "http://rsshub.invalid"
         )
         rsshub_client = RSSHubClient(http, rsshub_base_url)
-        allowed_private_hosts = (
-            {config.integrations.rsshub.base_url.host}
-            if config.integrations.rsshub is not None
-            and config.integrations.rsshub.base_url.host is not None
-            else set()
-        )
-        feed_validator = FeedValidator(http, allowed_private_hosts=allowed_private_hosts)
+        feed_validator = FeedValidator(http, allowed_private_origins=allowed_private_origins)
 
         def current_destination():
             current = config_manager.current
@@ -150,7 +150,7 @@ def create_app(config_path: Path) -> FastAPI:
             qq_client,
         )
         scheduler = Scheduler(config_manager, repository, polling, processor)
-        control_services.sources = SourceService(
+        source_service = SourceService(
             config_manager,
             config_store,
             repository,
@@ -159,6 +159,7 @@ def create_app(config_path: Path) -> FastAPI:
             CandidateCodec(mcp_token.encode() if mcp_token else b"disabled"),
             polling,
         )
+        control_services.sources = source_service
         control_services.filter = FilterService(config_manager, config_store)
         control_services.status = StatusService(
             config_manager,
@@ -166,9 +167,74 @@ def create_app(config_path: Path) -> FastAPI:
             last_tick_provider=lambda: scheduler.last_tick_at,
         )
         control_services.recovery = RecoveryService(repository)
-        control_services.destination = DestinationService(
+        destination_service = DestinationService(
             config_manager, apprise_client, telegram_client, qq_client
         )
+        control_services.destination = destination_service
+
+        def rebind_clients(previous, candidate) -> None:
+            next_ai = processor.ai
+            next_firecrawl = processor.firecrawl
+            next_apprise = processor.apprise
+            next_telegram = processor.telegram
+            next_qq = processor.qq
+            next_feed = ingestion.feed_client
+            next_rsshub = source_service.rsshub
+            next_validator = source_service.validator
+
+            if previous.ai != candidate.ai:
+                next_ai = AIClient(
+                    http,
+                    str(candidate.ai.base_url),
+                    candidate.ai.api_key,
+                    candidate.ai.model,
+                )
+            if previous.integrations.firecrawl != candidate.integrations.firecrawl:
+                firecrawl = candidate.integrations.firecrawl
+                next_firecrawl = FirecrawlClient(http, str(firecrawl.base_url), firecrawl.api_key)
+            if previous.integrations.apprise != candidate.integrations.apprise:
+                next_apprise = AppriseClient(http, str(candidate.integrations.apprise.base_url))
+            if previous.integrations.telegram != candidate.integrations.telegram:
+                telegram = candidate.integrations.telegram
+                next_telegram = (
+                    TelegramNotifier(http, telegram.bot_token, telegram.chat_id)
+                    if telegram is not None
+                    else None
+                )
+            if previous.integrations.qq != candidate.integrations.qq:
+                qq = candidate.integrations.qq
+                next_qq = (
+                    QQNotifier(
+                        http,
+                        str(qq.base_url),
+                        qq.access_token,
+                        qq.target_type,
+                        qq.target_id,
+                    )
+                    if qq is not None
+                    else None
+                )
+            if previous.integrations.rsshub != candidate.integrations.rsshub:
+                rsshub = candidate.integrations.rsshub
+                base_url = str(rsshub.base_url) if rsshub is not None else "http://rsshub.invalid"
+                private_origins = {str(rsshub.base_url)} if rsshub is not None else set()
+                next_feed = FeedClient(http, allowed_private_origins=private_origins)
+                next_rsshub = RSSHubClient(http, base_url)
+                next_validator = FeedValidator(http, allowed_private_origins=private_origins)
+
+            processor.ai = next_ai
+            processor.firecrawl = next_firecrawl
+            processor.apprise = next_apprise
+            processor.telegram = next_telegram
+            processor.qq = next_qq
+            ingestion.feed_client = next_feed
+            destination_service.apprise = next_apprise
+            destination_service.telegram = next_telegram
+            destination_service.qq = next_qq
+            source_service.rsshub = next_rsshub
+            source_service.validator = next_validator
+
+        config_manager.add_reload_hook(rebind_clients)
         app.state.services = AppServices(
             config_manager,
             repository,
@@ -194,6 +260,9 @@ def create_app(config_path: Path) -> FastAPI:
             await database.dispose()
 
     app = FastAPI(lifespan=lifespan)
+    if mcp_token:
+        app.add_middleware(ConsoleRequestLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(public_router)
     if mcp_token:
         app.state.console_token = mcp_token

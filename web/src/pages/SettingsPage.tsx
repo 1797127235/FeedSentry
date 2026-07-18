@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { errorDetail, testDestination } from "../api";
-import { useAuth } from "../auth";
+import { useAuth } from "../auth-context";
 import { Toast, type ToastMessage } from "../components/Toast";
 
 export function SettingsPage() {

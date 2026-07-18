@@ -358,7 +358,9 @@ class Repository:
             count = await session.scalar(select(func.count()).select_from(EventRow))
         return int(count or 0)
 
-    async def create_event(self, entry_id: int, goal: str, goal_digest: str) -> int:
+    async def create_event_with_result(
+        self, entry_id: int, goal: str, goal_digest: str
+    ) -> tuple[int, bool]:
         now = datetime.now(UTC)
         statement = (
             insert(EventRow)
@@ -374,12 +376,16 @@ class Repository:
             .on_conflict_do_nothing(index_elements=("entry_id",))
         )
         async with self._session_factory.begin() as session:
-            await session.execute(statement)
+            result = await session.execute(statement)
             event_id = await session.scalar(
                 select(EventRow.id).where(EventRow.entry_id == entry_id)
             )
         if event_id is None:
             raise RuntimeError("event insert did not produce an id")
+        return event_id, result.rowcount == 1
+
+    async def create_event(self, entry_id: int, goal: str, goal_digest: str) -> int:
+        event_id, _ = await self.create_event_with_result(entry_id, goal, goal_digest)
         return event_id
 
     async def get_event(self, event_id: int) -> EventRecord:
@@ -576,6 +582,19 @@ class Repository:
         async with self._session_factory.begin() as session:
             await session.execute(statement)
 
+    async def mark_delivery_failure(self, delivery_id: int, error: str) -> None:
+        statement = (
+            update(DeliveryRow)
+            .where(DeliveryRow.id == delivery_id)
+            .values(
+                attempts=DeliveryRow.attempts + 1,
+                response_summary=error[:1000],
+                updated_at=datetime.now(UTC),
+            )
+        )
+        async with self._session_factory.begin() as session:
+            await session.execute(statement)
+
     async def schedule_event_retry(
         self, event_id: int, failed_stage: EventStatus, error: str
     ) -> None:
@@ -720,6 +739,8 @@ class Repository:
             )
             .values(
                 status=EventStatus.RETRY_WAIT.value,
+                failure_count=0,
+                last_error=None,
                 next_attempt_at=now,
                 updated_at=now,
             )
@@ -760,6 +781,11 @@ class Repository:
                 select(EventRow.id)
                 .where(
                     (EventRow.status == EventStatus.DISCOVERED.value)
+                    | (EventRow.status == EventStatus.SCREENING.value)
+                    | (EventRow.status == EventStatus.FETCHING.value)
+                    | (EventRow.status == EventStatus.SUMMARIZING.value)
+                    | (EventRow.status == EventStatus.DELIVERY_PENDING.value)
+                    | (EventRow.status == EventStatus.DELIVERING.value)
                     | (
                         (EventRow.status == EventStatus.RETRY_WAIT.value)
                         & (EventRow.next_attempt_at <= now)

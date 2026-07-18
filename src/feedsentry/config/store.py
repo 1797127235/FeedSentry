@@ -81,10 +81,16 @@ class ConfigStore:
             changed = mutate(data)
             if not changed:
                 return False
+            original = self.manager.path.read_text(encoding="utf-8")
             content = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
             self._validate_content(content)
             self._replace(content)
-            self.manager.load_initial()
+            if not self.manager.reload_now():
+                error = self.manager.last_error or "configuration reload failed"
+                self._replace(original)
+                if not self.manager.reload_now():
+                    raise RuntimeError("configuration rollback failed")
+                raise RuntimeError(error)
             return True
 
     def _read_mapping(self) -> dict[str, Any]:
@@ -107,7 +113,8 @@ class ConfigStore:
         try:
             with handle:
                 handle.write(content)
-            load_config(validation_path)
+            candidate = load_config(validation_path)
+            self.manager.validate_reload_candidate(candidate)
         finally:
             validation_path.unlink(missing_ok=True)
 
@@ -128,6 +135,11 @@ class ConfigStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         except Exception:
             temp_path.unlink(missing_ok=True)
             raise

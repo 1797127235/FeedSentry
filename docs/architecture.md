@@ -90,6 +90,11 @@ RSS text, fetched Markdown, and model output are untrusted. AI prompts instruct
 the model to ignore embedded commands, and Pydantic validates structured model
 decisions. Scraped content is cached by article URL.
 
+Feed HTTP responses are size-limited and redirects are checked one hop at a time.
+The configured RSSHub private-network exception is scoped to its full origin. These
+checks are defense in depth: deployment egress policy must also prevent DNS rebinding
+and Firecrawl-side redirects from reaching metadata endpoints or private services.
+
 ## Persistence and idempotency
 
 SQLite contains five tables:
@@ -104,6 +109,11 @@ SQLite contains five tables:
 Repository transitions compare the persisted current status before updating.
 Startup recovery returns interrupted external stages to `retry_wait`. SQLite
 timestamps are restored as UTC-aware values.
+
+External notification delivery is at-least-once. A process exit after the provider
+accepts a message but before the success record commits can result in a duplicate.
+Configuration reloads atomically rebind lightweight external clients; `storage.path`
+is restart-only because the repository and all state-machine services share one database.
 
 The old monitor-based schema is not migrated. Deployments using this version
 must start with a new database; each source then establishes a silent baseline.

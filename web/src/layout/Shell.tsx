@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth";
+import { useAuth } from "../auth-context";
 
 const NAV = [
   { to: "/", label: "概览", end: true },

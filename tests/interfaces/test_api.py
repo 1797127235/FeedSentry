@@ -44,7 +44,9 @@ async def test_health_and_status_do_not_expose_secrets() -> None:
         },
     )()
     app.state.services = FakeServices(
-        config, FakeRepository(), type("Scheduler", (), {"last_tick_at": None})()
+        config,
+        FakeRepository(),
+        type("Scheduler", (), {"last_tick_at": None, "is_running": True})(),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         live = await client.get("/health/live")
@@ -56,3 +58,19 @@ async def test_health_and_status_do_not_expose_secrets() -> None:
     assert status.json()["sources"] == 2
     assert status.json()["enabled_sources"] == 1
     assert "secret-ai-key" not in status.text
+
+
+async def test_readiness_fails_when_scheduler_is_not_running() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    config = type("ConfigManager", (), {"current": object(), "last_error": None})()
+    app.state.services = FakeServices(
+        config,
+        FakeRepository(),
+        type("Scheduler", (), {"last_tick_at": None, "is_running": False})(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503

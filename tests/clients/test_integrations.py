@@ -8,6 +8,11 @@ from feedsentry.clients.apprise import AppriseClient
 from feedsentry.clients.firecrawl import FirecrawlClient
 
 
+async def public_resolver(hostname: str, port: int) -> set[str]:
+    del hostname, port
+    return {"93.184.216.34"}
+
+
 @respx.mock
 async def test_firecrawl_omits_auth_when_key_is_empty() -> None:
     route = respx.post("http://firecrawl:3002/v1/scrape").mock(
@@ -15,9 +20,9 @@ async def test_firecrawl_omits_auth_when_key_is_empty() -> None:
     )
 
     async with httpx.AsyncClient() as http:
-        body = await FirecrawlClient(http, "http://firecrawl:3002/", "").scrape(
-            "https://example.com/post"
-        )
+        body = await FirecrawlClient(
+            http, "http://firecrawl:3002/", "", resolver=public_resolver
+        ).scrape("https://example.com/post")
 
     assert body == "Body"
     assert "authorization" not in route.calls[0].request.headers
@@ -35,9 +40,9 @@ async def test_firecrawl_uses_bearer_auth_when_configured() -> None:
     )
 
     async with httpx.AsyncClient() as http:
-        await FirecrawlClient(http, "http://firecrawl:3002", "token").scrape(
-            "https://example.com/post"
-        )
+        await FirecrawlClient(
+            http, "http://firecrawl:3002", "token", resolver=public_resolver
+        ).scrape("https://example.com/post")
 
     assert route.calls[0].request.headers["authorization"] == "Bearer token"
 
@@ -50,8 +55,16 @@ async def test_firecrawl_rejects_missing_or_blank_markdown() -> None:
 
     async with httpx.AsyncClient() as http:
         with pytest.raises(ValueError, match="markdown"):
+            await FirecrawlClient(
+                http, "http://firecrawl:3002", None, resolver=public_resolver
+            ).scrape("https://example.com/post")
+
+
+async def test_firecrawl_rejects_private_article_url_before_request() -> None:
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(httpx.HTTPError, match="not allowed"):
             await FirecrawlClient(http, "http://firecrawl:3002", None).scrape(
-                "https://example.com/post"
+                "http://127.0.0.1/private"
             )
 
 

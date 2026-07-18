@@ -7,7 +7,7 @@ import {
   type EventDetailView,
 } from "../api";
 import { Toast, type ToastMessage } from "../components/Toast";
-import { formatDateTime } from "../format";
+import { formatDateTime, safeExternalUrl } from "../format";
 
 export function EventDetailPage() {
   const { id } = useParams();
@@ -62,6 +62,7 @@ export function EventDetailPage() {
 
   const event = detail?.event;
   const failed = event?.status === "failed";
+  const externalLink = event ? safeExternalUrl(event.link) : null;
 
   return (
     <div>
@@ -146,9 +147,13 @@ export function EventDetailPage() {
               <div>
                 <dt>链接</dt>
                 <dd>
-                  <a href={event.link} target="_blank" rel="noreferrer">
-                    {event.link}
-                  </a>
+                  {externalLink ? (
+                    <a href={externalLink} target="_blank" rel="noreferrer">
+                      {event.link}
+                    </a>
+                  ) : (
+                    event.link || "—"
+                  )}
                 </dd>
               </div>
               <div>

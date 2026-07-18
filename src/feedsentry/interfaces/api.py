@@ -82,7 +82,11 @@ async def live() -> dict[str, str]:
 @public_router.get("/health/ready")
 async def ready(request: Request) -> dict[str, str]:
     services = request.app.state.services
-    if services.config_manager.current is None or not await services.repository.ping():
+    if (
+        services.config_manager.current is None
+        or not services.scheduler.is_running
+        or not await services.repository.ping()
+    ):
         raise HTTPException(status_code=503, detail="not ready")
     return {"status": "ready"}
 

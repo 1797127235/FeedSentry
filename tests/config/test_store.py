@@ -92,6 +92,23 @@ async def test_replace_failure_keeps_original_file(store, config_path, monkeypat
     )
 
 
+async def test_reload_hook_failure_rolls_back_config_file(store, config_path) -> None:
+    original = config_path.read_bytes()
+
+    def reject_new_goal(previous, candidate) -> None:
+        del previous
+        if candidate.filter.goal == "Rejected goal":
+            raise RuntimeError("cannot rebind")
+
+    store.manager.add_reload_hook(reject_new_goal)
+
+    with pytest.raises(RuntimeError, match="configuration reload failed"):
+        await store.set_filter_goal("Rejected goal")
+
+    assert config_path.read_bytes() == original
+    assert store.manager.current.filter.goal == "Important releases only"
+
+
 async def test_append_filter_goal_joins_with_newline(store) -> None:
     assert await store.append_filter_goal("Security updates") is True
     assert store.manager.current.filter.goal == "Important releases only\nSecurity updates"

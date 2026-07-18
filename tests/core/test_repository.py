@@ -99,6 +99,31 @@ async def test_event_insert_is_idempotent(repository: Repository) -> None:
     assert first == second
 
 
+async def test_event_insert_reports_whether_it_created_a_row(repository: Repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="item-created-result",
+        title="One",
+        summary="Summary",
+        link="https://example.com/created-result",
+        author=None,
+        published_at=None,
+        content_hash="hash-created-result",
+        raw_json="{}",
+    )
+
+    first_id, first_created = await repository.create_event_with_result(
+        entry.id, "goal", "goal-hash"
+    )
+    second_id, second_created = await repository.create_event_with_result(
+        entry.id, "goal", "goal-hash"
+    )
+
+    assert first_id == second_id
+    assert first_created is True
+    assert second_created is False
+
+
 async def test_recovery_returns_in_progress_events_to_retry(repository: Repository) -> None:
     entry = await repository.upsert_entry(
         source_url="https://example.com/feed",
@@ -124,6 +149,50 @@ async def test_recovery_returns_in_progress_events_to_retry(repository: Reposito
     assert event.next_attempt_at is not None
     assert event.next_attempt_at.tzinfo is UTC
     assert event.next_attempt_at <= datetime.now(UTC)
+
+
+async def test_delivery_pending_event_is_immediately_schedulable(repository: Repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="delivery-pending",
+        title="Pending",
+        summary="Summary",
+        link="https://example.com/pending",
+        author=None,
+        published_at=None,
+        content_hash="pending-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+    await repository.transition_event(
+        event_id,
+        EventStatus.SCREENING,
+        EventStatus.DELIVERY_PENDING,
+        output_summary="Summary",
+    )
+
+    assert event_id in await repository.list_due_event_ids(datetime.now(UTC), limit=20)
+
+
+async def test_in_progress_event_is_schedulable_after_runtime_failure(
+    repository: Repository,
+) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="runtime-recovery",
+        title="Recover",
+        summary="Summary",
+        link="https://example.com/recover",
+        author=None,
+        published_at=None,
+        content_hash="runtime-recovery-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "goal-hash")
+    await repository.transition_event(event_id, EventStatus.DISCOVERED, EventStatus.SCREENING)
+
+    assert event_id in await repository.list_due_event_ids(datetime.now(UTC), limit=20)
 
 
 async def test_transition_does_not_overwrite_an_event_advanced_by_another_worker(
@@ -300,6 +369,8 @@ async def test_terminal_failure_preserves_stage_and_can_be_retried(repository: R
     waiting = await repository.get_event(event_id)
     assert waiting.status is EventStatus.RETRY_WAIT
     assert waiting.resume_stage is EventStatus.SCREENING
+    assert waiting.failure_count == 0
+    assert waiting.last_error is None
     assert waiting.next_attempt_at is not None
 
 
@@ -430,3 +501,26 @@ async def test_list_deliveries_for_event(repository: Repository) -> None:
     assert deliveries[0].status == "delivered"
     assert deliveries[1].status == "pending"
     assert deliveries[0].created_at.tzinfo is UTC
+
+
+async def test_delivery_failure_records_attempt(repository: Repository) -> None:
+    entry = await repository.upsert_entry(
+        source_url="https://example.com/feed",
+        external_id="failed-delivery",
+        title="Deliver me",
+        summary="Summary",
+        link="https://example.com/delivery",
+        author=None,
+        published_at=None,
+        content_hash="failed-delivery-hash",
+        raw_json="{}",
+    )
+    event_id = await repository.create_event(entry.id, "goal", "ghash")
+    delivery = await repository.create_delivery(event_id, "telegram")
+
+    await repository.mark_delivery_failure(delivery.id, "temporary failure")
+
+    [failed] = await repository.list_deliveries_for_event(event_id)
+    assert failed.status == "pending"
+    assert failed.attempts == 1
+    assert failed.response_summary == "temporary failure"

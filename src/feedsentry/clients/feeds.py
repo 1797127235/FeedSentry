@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import struct_time
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import feedparser
 import httpx
+
+from feedsentry.clients.feed_http import AddressResolver, SafeFeedHTTP
 
 
 @dataclass(frozen=True)
@@ -53,20 +55,23 @@ def normalize_feed(content: bytes, source_url: str) -> tuple[NormalizedEntry, ..
 
 
 def normalize_parsed_feed_with_title(
-    parsed: Any, source_url: str
+    parsed: Any, source_url: str, link_base_url: str | None = None
 ) -> tuple[str | None, tuple[NormalizedEntry, ...]]:
     title = _normalize_text(parsed.feed.get("title")) or None
-    return title, normalize_parsed_feed(parsed, source_url)
+    return title, normalize_parsed_feed(parsed, source_url, link_base_url)
 
 
-def normalize_parsed_feed(parsed: Any, source_url: str) -> tuple[NormalizedEntry, ...]:
-    return tuple(_normalize_entry(entry, source_url) for entry in parsed.entries)
+def normalize_parsed_feed(
+    parsed: Any, source_url: str, link_base_url: str | None = None
+) -> tuple[NormalizedEntry, ...]:
+    base_url = link_base_url or source_url
+    return tuple(_normalize_entry(entry, source_url, base_url) for entry in parsed.entries)
 
 
-def _normalize_entry(entry: Any, source_url: str) -> NormalizedEntry:
+def _normalize_entry(entry: Any, source_url: str, link_base_url: str) -> NormalizedEntry:
     title = _normalize_text(entry.get("title"))
     summary = _normalize_text(entry.get("summary", entry.get("description")))
-    link = _normalize_url(entry.get("link"))
+    link = _normalize_url(entry.get("link"), link_base_url)
     author_value = _normalize_text(entry.get("author"))
     author = author_value or None
     published_at = _published_at(entry)
@@ -95,14 +100,16 @@ def _normalize_text(value: object | None) -> str:
     return " ".join(str(value or "").split())
 
 
-def _normalize_url(value: object | None) -> str:
+def _normalize_url(value: object | None, base_url: str | None = None) -> str:
     raw_url = _normalize_text(value)
     if not raw_url:
         return ""
+    if base_url is not None:
+        raw_url = urljoin(base_url, raw_url)
 
     parsed = urlsplit(raw_url)
-    if not parsed.scheme or not parsed.hostname:
-        return raw_url
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return ""
 
     scheme = parsed.scheme.lower()
     host = parsed.hostname.lower()
@@ -111,7 +118,7 @@ def _normalize_url(value: object | None) -> str:
     try:
         port = parsed.port
     except ValueError:
-        return raw_url
+        return ""
     if port is not None and (scheme, port) not in {("http", 80), ("https", 443)}:
         host = f"{host}:{port}"
     userinfo = ""
@@ -140,8 +147,20 @@ def _digest(*values: str) -> str:
 
 
 class FeedClient:
-    def __init__(self, http: httpx.AsyncClient) -> None:
-        self._http = http
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        *,
+        max_bytes: int = 5_000_000,
+        allowed_private_origins: set[str] | None = None,
+        resolver: AddressResolver | None = None,
+    ) -> None:
+        self.transport = SafeFeedHTTP(
+            http,
+            max_bytes=max_bytes,
+            allowed_private_origins=allowed_private_origins,
+            resolver=resolver,
+        )
 
     async def fetch(
         self, source_url: str, etag: str | None = None, last_modified: str | None = None
@@ -152,18 +171,18 @@ class FeedClient:
         if last_modified is not None:
             headers["If-Modified-Since"] = last_modified
 
-        response = await self._http.get(source_url, headers=headers, follow_redirects=True)
-        if response.status_code == httpx.codes.NOT_MODIFIED:
-            return FeedFetchResult(True, etag, last_modified, ())
-
-        response.raise_for_status()
-        title, entries = normalize_parsed_feed_with_title(
-            feedparser.parse(response.content), source_url
-        )
-        return FeedFetchResult(
-            not_modified=False,
-            etag=response.headers.get("etag"),
-            last_modified=response.headers.get("last-modified"),
-            entries=entries,
-            title=title,
-        )
+        async with self.transport.stream(source_url, headers=headers) as response:
+            if response.status_code == httpx.codes.NOT_MODIFIED:
+                return FeedFetchResult(True, etag, last_modified, ())
+            response.raise_for_status()
+            content = await self.transport.read_limited(response)
+            title, entries = normalize_parsed_feed_with_title(
+                feedparser.parse(content), source_url, str(response.url)
+            )
+            return FeedFetchResult(
+                not_modified=False,
+                etag=response.headers.get("etag"),
+                last_modified=response.headers.get("last-modified"),
+                entries=entries,
+                title=title,
+            )

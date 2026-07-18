@@ -172,7 +172,24 @@ class SourceService:
 
     async def subscribe_feed(self, candidate_id: str) -> AddSourceResult:
         candidate = self.candidates.decode(candidate_id)
-        validated = await self.validator.validate(candidate.feed_url)
+
+        def expected_url() -> str:
+            integrations = self._current().integrations
+            if integrations.rsshub is None:
+                raise RuntimeError("RSSHub is not configured")
+            return RSSHubSourceConfig(
+                id="candidate",
+                kind="rsshub",
+                page_url=candidate.page_url,
+                route=candidate.route,
+            ).feed_url(integrations.rsshub)
+
+        expected = expected_url()
+        if expected != candidate.feed_url:
+            raise ValueError("candidate no longer matches the configured RSSHub instance")
+        validated = await self.validator.validate(expected)
+        if expected_url() != expected:
+            raise ValueError("candidate no longer matches the configured RSSHub instance")
         source = RSSHubSourceConfig(
             id=self._source_id(validated.title, validated.canonical_url),
             kind="rsshub",

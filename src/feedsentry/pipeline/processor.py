@@ -99,7 +99,8 @@ class EventProcessor:
                 return
 
     async def _screen(self, bundle: EventBundle) -> None:
-        decision = await self.ai.screen(
+        ai = self.ai
+        decision = await ai.screen(
             bundle.event.goal_snapshot, bundle.entry.title, bundle.entry.summary
         )
         if decision.action is DecisionAction.DISCARD:
@@ -122,7 +123,8 @@ class EventProcessor:
     async def _fetch(self, bundle: EventBundle) -> None:
         scrape = bundle.scrape
         if scrape is None:
-            markdown = await self.firecrawl.scrape(bundle.entry.link)
+            firecrawl = self.firecrawl
+            markdown = await firecrawl.scrape(bundle.entry.link)
             await self.repository.save_scrape(
                 bundle.entry.link,
                 markdown,
@@ -136,7 +138,8 @@ class EventProcessor:
     async def _summarize(self, bundle: EventBundle) -> None:
         if bundle.scrape is None:
             raise RuntimeError("scrape cache is missing")
-        decision = await self.ai.summarize(
+        ai = self.ai
+        decision = await ai.summarize(
             bundle.event.goal_snapshot, bundle.entry.title, bundle.scrape.markdown
         )
         if decision.action is DecisionAction.DISCARD:
@@ -165,47 +168,56 @@ class EventProcessor:
 
     async def _deliver(self, bundle: EventBundle) -> None:
         destination = self.destination() if callable(self.destination) else self.destination
+        apprise = self.apprise
+        telegram = self.telegram
+        qq = self.qq
         title = bundle.event.output_title or bundle.entry.title
         summary = bundle.event.output_summary or bundle.entry.summary
         feed_state = await self.repository.get_feed_state(bundle.entry.source_url)
         source_title = feed_state.title if feed_state is not None else None
         if isinstance(destination, DestinationConfig) and destination.kind == "telegram":
-            if self.telegram is None:
+            if telegram is None:
                 raise RuntimeError("telegram destination is not configured")
             delivery = await self.repository.create_delivery(
-                bundle.event.id, f"telegram:{self.telegram.chat_id}"
+                bundle.event.id, f"telegram:{telegram.chat_id}"
             )
             if delivery.status == "delivered":
                 await self.repository.transition_event(
                     bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
                 )
                 return
-            response = await self.telegram.notify(
-                Notification(
-                    title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+            try:
+                response = await telegram.notify(
+                    Notification(
+                        title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+                    )
                 )
-            )
+            except Exception as exc:
+                await self.repository.mark_delivery_failure(delivery.id, str(exc))
+                raise
             await self.repository.mark_delivery_success(delivery.id, response)
             await self.repository.transition_event(
                 bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
             )
             return
         if isinstance(destination, DestinationConfig) and destination.kind == "qq":
-            if self.qq is None:
+            if qq is None:
                 raise RuntimeError("qq destination is not configured")
-            delivery = await self.repository.create_delivery(
-                bundle.event.id, self.qq.destination_key
-            )
+            delivery = await self.repository.create_delivery(bundle.event.id, qq.destination_key)
             if delivery.status == "delivered":
                 await self.repository.transition_event(
                     bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
                 )
                 return
-            response = await self.qq.notify(
-                Notification(
-                    title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+            try:
+                response = await qq.notify(
+                    Notification(
+                        title, summary, bundle.entry.source_url, bundle.entry.link, source_title
+                    )
                 )
-            )
+            except Exception as exc:
+                await self.repository.mark_delivery_failure(delivery.id, str(exc))
+                raise
             await self.repository.mark_delivery_success(delivery.id, response)
             await self.repository.transition_event(
                 bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED
@@ -224,7 +236,11 @@ class EventProcessor:
             return
         reason = bundle.event.decision_reason or "Relevant to the monitoring goal"
         body = f"{summary}\n\nReason: {reason}\n\n{bundle.entry.link}"
-        response = await self.apprise.notify(apprise_key, title, body)
+        try:
+            response = await apprise.notify(apprise_key, title, body)
+        except Exception as exc:
+            await self.repository.mark_delivery_failure(delivery.id, str(exc))
+            raise
         await self.repository.mark_delivery_success(delivery.id, response)
         await self.repository.transition_event(
             bundle.event.id, EventStatus.DELIVERING, EventStatus.DELIVERED

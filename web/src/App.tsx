@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "./auth";
+import { useAuth } from "./auth-context";
 import { Shell } from "./layout/Shell";
 import { AddSourcePage } from "./pages/AddSourcePage";
 import { DashboardPage } from "./pages/DashboardPage";

@@ -263,6 +263,47 @@ async def test_delivery_includes_feed_title_in_notification(
     assert qq.calls[0].source_title == "Example Feed"
 
 
+async def test_delivery_uses_one_notifier_snapshot(processor_fixture: ProcessorFixture) -> None:
+    fixture = processor_fixture
+    old_qq = FakeQQ("qq:group:old")
+    new_qq = FakeQQ("qq:group:new")
+    fixture.processor = EventProcessor(
+        fixture.repository,
+        fixture.ai,
+        fixture.firecrawl,
+        fixture.apprise,
+        DestinationConfig(kind="qq"),
+        qq=old_qq,
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id, EventStatus.DISCOVERED, EventStatus.SCREENING
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id,
+        EventStatus.SCREENING,
+        EventStatus.DELIVERY_PENDING,
+        output_summary="Summary",
+    )
+    await fixture.repository.transition_event(
+        fixture.event_id, EventStatus.DELIVERY_PENDING, EventStatus.DELIVERING
+    )
+    bundle = await fixture.repository.get_event_bundle(fixture.event_id)
+    create_delivery = fixture.repository.create_delivery
+
+    async def swap_notifier(event_id: int, destination_key: str):
+        fixture.processor.qq = new_qq
+        return await create_delivery(event_id, destination_key)
+
+    fixture.repository.create_delivery = swap_notifier
+
+    await fixture.processor._deliver(bundle)
+
+    assert len(old_qq.calls) == 1
+    assert new_qq.calls == []
+    [delivery] = await fixture.repository.list_deliveries_for_event(fixture.event_id)
+    assert delivery.apprise_key == "qq:group:old"
+
+
 async def test_qq_failure_retries_without_repeating_delivery_record(
     processor_fixture: ProcessorFixture,
 ) -> None:
@@ -290,6 +331,8 @@ async def test_qq_failure_retries_without_repeating_delivery_record(
     assert waiting.status is EventStatus.RETRY_WAIT
     assert waiting.resume_stage is EventStatus.DELIVERING
     assert await fixture.repository.count_deliveries() == 1
+    [failed_delivery] = await fixture.repository.list_deliveries_for_event(fixture.event_id)
+    assert failed_delivery.attempts == 1
 
     qq.error = None
     await fixture.repository.make_event_due(fixture.event_id)

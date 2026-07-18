@@ -93,3 +93,113 @@ async def test_run_stops_cleanly() -> None:
     await asyncio.sleep(0)
     await scheduler.stop()
     await task
+    assert scheduler.is_running is False
+
+
+async def test_tick_continues_after_one_event_fails() -> None:
+    current = type(
+        "Config",
+        (),
+        {
+            "sources": [],
+            "filter": type("F", (), {"goal": "AI"})(),
+            "integrations": type("I", (), {"rsshub": None})(),
+        },
+    )()
+    repository = FakeRepository()
+    repository.list_due_event_ids = lambda now, limit: _event_ids(now, limit)
+    processor = FakeProcessor()
+
+    async def process(event_id: int) -> None:
+        if event_id == 1:
+            raise RuntimeError("broken event")
+        processor.processed.append(event_id)
+
+    processor.process_event = process
+    scheduler = Scheduler(FakeConfig(current), repository, FakePolling(), processor)
+
+    await scheduler.tick()
+
+    assert processor.processed == [2]
+
+
+async def _event_ids(now: datetime, limit: int) -> list[int]:
+    del now, limit
+    return [1, 2]
+
+
+async def test_run_survives_a_tick_exception() -> None:
+    current = type(
+        "Config",
+        (),
+        {
+            "sources": [],
+            "filter": type("F", (), {"goal": "AI"})(),
+            "integrations": type("I", (), {"rsshub": None})(),
+        },
+    )()
+    scheduler = Scheduler(
+        FakeConfig(current), FakeRepository(), FakePolling(), FakeProcessor(), tick_seconds=0.01
+    )
+    calls = 0
+
+    async def tick() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("transient database failure")
+        await scheduler.stop()
+
+    scheduler.tick = tick
+    await asyncio.wait_for(scheduler.run(), timeout=1)
+
+    assert calls == 2
+    assert scheduler.is_running is False
+
+
+async def test_tick_processes_events_with_bounded_concurrency() -> None:
+    current = type(
+        "Config",
+        (),
+        {
+            "sources": [],
+            "filter": type("F", (), {"goal": "AI"})(),
+            "integrations": type("I", (), {"rsshub": None})(),
+        },
+    )()
+    repository = FakeRepository()
+    repository.list_due_event_ids = lambda now, limit: _three_event_ids(now, limit)
+    active = 0
+    max_active = 0
+    release = asyncio.Event()
+    started = asyncio.Event()
+
+    async def process(event_id: int) -> None:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        if max_active == 2:
+            started.set()
+        await release.wait()
+        active -= 1
+
+    processor = FakeProcessor()
+    processor.process_event = process
+    scheduler = Scheduler(
+        FakeConfig(current),
+        repository,
+        FakePolling(),
+        processor,
+        event_concurrency=2,
+    )
+    task = asyncio.create_task(scheduler.tick())
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert max_active == 2
+    release.set()
+    await task
+
+
+async def _three_event_ids(now: datetime, limit: int) -> list[int]:
+    del now, limit
+    return [1, 2, 3]
